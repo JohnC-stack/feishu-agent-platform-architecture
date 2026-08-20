@@ -9,6 +9,10 @@ describe('feishu-gateway', () => {
     await app.close();
 
     expect(response.statusCode).toBe(200);
-    expect(response.json()).toMatchObject({ service: 'feishu-gateway', status: 'ok' });
+    expect(response.json()).toMatchObject({
+      service: 'feishu-gateway',
+      status: 'ok',
+      checks: [{ name: 'feishu-wss', ok: true }],
+    });
   });
 });

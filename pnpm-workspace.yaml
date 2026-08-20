@@ -8,3 +8,4 @@ strictPeerDependencies: false
 
 allowBuilds:
   esbuild: true
+  protobufjs: true
