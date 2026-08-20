@@ -4,7 +4,16 @@
 
 ## 当前状态
 
-项目处于架构与实施计划阶段，尚未包含生产代码。当前基线已经确定：
+项目已经进入实施阶段。P0 工程基线已完成本地全量验收，当前仅等待远端 CI 与 Security 工作流通过；该门禁关闭前不进入 P1。已完成内容包括：
+
+- pnpm/TypeScript 单体仓库、4 个应用和 7 个共享包。
+- 任务、执行器、风险和健康检查共享契约。
+- 任务状态机、统一 Executor Adapter 与首个 PostgreSQL migration。
+- Control API、Feishu Gateway、Windows Worker 健康服务和管理台骨架。
+- 单元测试、构建、GitHub Actions、依赖审计和密钥扫描。
+- WSL2、Docker Engine/Compose、PostgreSQL、Redis 和数据库 migration 实机验收。
+
+当前架构基线：
 
 - 飞书使用 WSS 443 长连接，Windows 服务器不开放公网入站端口。
 - 明确命令优先直接调用 REST API 或 CLI，不经过模型。
@@ -13,7 +22,7 @@
 - 采用 Windows 原生执行面 + Hyper-V Linux VM / Docker 控制面。
 - 管理台、审批、审计、可观测性、告警、备份和回滚属于正式交付范围。
 
-详细开发顺序、20 周排期和阶段验收条件见 [IMPLEMENTATION_PLAN.md](IMPLEMENTATION_PLAN.md)。
+详细开发顺序、20 周排期和阶段验收条件见 [IMPLEMENTATION_PLAN.md](IMPLEMENTATION_PLAN.md)，逐项执行证据见 [IMPLEMENTATION_STATUS.md](IMPLEMENTATION_STATUS.md)，本地启动步骤见 [docs/development.md](docs/development.md)。
 
 ## 设计目标
 
@@ -115,24 +124,24 @@
 
 ## 路由原则
 
-| 场景 | 推荐执行器 | 模型 Token |
-| --- | --- | ---: |
-| `/gitlab mr 123`、固定页面查询 | `DirectToolExecutor` | 0 |
-| 固定规则生成报表、明确写操作 | `DirectToolExecutor` | 0 |
-| “汇总本周 GitLab 和 Confluence 风险” | `ApiAgentExecutor` | 按任务产生 |
-| 自然语言选择多个只读工具 | `ApiAgentExecutor` | 按任务产生 |
-| 代码分析、修改和测试 | `AgentCliExecutor` | 按任务产生 |
-| 本地文件、CLI 和重型复杂任务 | `AgentCliExecutor` | 按任务产生 |
+| 场景                                 | 推荐执行器           | 模型 Token |
+| ------------------------------------ | -------------------- | ---------: |
+| `/gitlab mr 123`、固定页面查询       | `DirectToolExecutor` |          0 |
+| 固定规则生成报表、明确写操作         | `DirectToolExecutor` |          0 |
+| “汇总本周 GitLab 和 Confluence 风险” | `ApiAgentExecutor`   | 按任务产生 |
+| 自然语言选择多个只读工具             | `ApiAgentExecutor`   | 按任务产生 |
+| 代码分析、修改和测试                 | `AgentCliExecutor`   | 按任务产生 |
+| 本地文件、CLI 和重型复杂任务         | `AgentCliExecutor`   | 按任务产生 |
 
 写操作无论由哪个执行器完成，都必须先经过权限和审批中心。API、CLI 和 MCP 本身不是 Token 计费单位，成本主要来自模型输入上下文、工具描述、工具返回内容、模型输出和失败重试。
 
 ## 混合部署
 
-| 部署位置 | 组件 | 原因 |
-| --- | --- | --- |
-| Windows 原生服务 | Feishu Gateway、DirectTool、Agent CLI、工作区和沙箱代理 | 直接使用 Windows 凭据、VPN、路径、Git 和本地 CLI |
-| Hyper-V Linux VM / Docker | Web、Control API、Redis、PostgreSQL、API Agent、Logs/Metrics/Trace | 便于依赖隔离、升级、备份和迁移 |
-| Hyper-V 强隔离环境 | 高风险或不可信任务 | 提供强于普通进程容器的隔离边界 |
+| 部署位置                  | 组件                                                               | 原因                                             |
+| ------------------------- | ------------------------------------------------------------------ | ------------------------------------------------ |
+| Windows 原生服务          | Feishu Gateway、DirectTool、Agent CLI、工作区和沙箱代理            | 直接使用 Windows 凭据、VPN、路径、Git 和本地 CLI |
+| Hyper-V Linux VM / Docker | Web、Control API、Redis、PostgreSQL、API Agent、Logs/Metrics/Trace | 便于依赖隔离、升级、备份和迁移                   |
+| Hyper-V 强隔离环境        | 高风险或不可信任务                                                 | 提供强于普通进程容器的隔离边界                   |
 
 Windows 与 Linux VM 之间只开放必要内部端口，并使用 mTLS 或等效服务身份。生产 Web 管理台不暴露到公网。
 
@@ -193,17 +202,17 @@ Windows 与 Linux VM 之间只开放必要内部端口，并使用 mTLS 或等�
 
 ## 实施计划摘要
 
-| 阶段 | 周期 | 交付 |
-| --- | ---: | --- |
-| P0 | 第 1 周 | 工程基线、契约、CI、开发环境 |
-| P1 | 第 2–3 周 | 飞书 WSS 收发 PoC |
-| P2 | 第 4–5 周 | 队列、路由、会话和数据库 |
-| P3 | 第 6–8 周 | 三类执行器和沙箱 |
-| P4 | 第 9–10 周 | GitLab、Confluence、飞书只读接入 |
-| P5 | 第 11–13 周 | RBAC、审批、配额和审计 |
-| P6 | 第 14–16 周 | 完整管理台和运维中心 |
-| P7 | 第 17–18 周 | 混合部署、备份和回滚 |
-| P8 | 第 19–20 周 | 压测、安全测试、UAT 和生产验收 |
+| 阶段 |        周期 | 交付                             |
+| ---- | ----------: | -------------------------------- |
+| P0   |     第 1 周 | 本地全量验收通过，远端 CI 待通过 |
+| P1   |   第 2–3 周 | 飞书 WSS 收发 PoC                |
+| P2   |   第 4–5 周 | 队列、路由、会话和数据库         |
+| P3   |   第 6–8 周 | 三类执行器和沙箱                 |
+| P4   |  第 9–10 周 | GitLab、Confluence、飞书只读接入 |
+| P5   | 第 11–13 周 | RBAC、审批、配额和审计           |
+| P6   | 第 14–16 周 | 完整管理台和运维中心             |
+| P7   | 第 17–18 周 | 混合部署、备份和回滚             |
+| P8   | 第 19–20 周 | 压测、安全测试、UAT 和生产验收   |
 
 完整任务、验收标准、测试策略、风险和后续启动顺序见 [IMPLEMENTATION_PLAN.md](IMPLEMENTATION_PLAN.md)。
 
@@ -211,19 +220,28 @@ Windows 与 Linux VM 之间只开放必要内部端口，并使用 mTLS 或等�
 
 ```text
 .
+├── .github/workflows
+├── apps
+│   ├── admin-web
+│   ├── control-api
+│   ├── feishu-gateway
+│   └── windows-worker
+├── packages
+│   ├── contracts
+│   ├── database
+│   ├── executors
+│   ├── integrations
+│   ├── observability
+│   ├── policy
+│   └── testing
+├── deploy
+├── docs
 ├── README.md
 ├── IMPLEMENTATION_PLAN.md
+├── IMPLEMENTATION_STATUS.md
 └── diagrams
-    ├── network-topology-v2.png
-    ├── network-topology-v2.svg
-    ├── network-topology-v3.png
-    ├── network-topology-v3.svg
-    ├── technical-architecture-v1.png
-    ├── technical-architecture-v1.svg
-    ├── technical-architecture-v2.png
-    └── technical-architecture-v2.svg
 ```
 
 ## 下一步
 
-开始实施时从计划 P0 执行：确认目标 Windows 与 Hyper-V 条件、确认飞书测试应用和权限、初始化单体仓库与共享契约、建立本地开发环境和 CI，然后交付飞书 WSS 端到端 PoC。
+提交并推送当前实现分支，确认 GitHub Actions 的 CI 与 Security 工作流全部通过后关闭 P0；只有该门禁关闭，才进入 P1 并接入飞书测试应用、交付 WSS 端到端收发 PoC。

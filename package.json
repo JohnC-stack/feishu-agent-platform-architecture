@@ -1,0 +1,47 @@
+{
+  "name": "feishu-agent-platform",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Enterprise Feishu Agent platform monorepo",
+  "type": "module",
+  "packageManager": "pnpm@11.19.0",
+  "engines": {
+    "node": ">=22.0.0 <26",
+    "pnpm": ">=10.0.0 <12"
+  },
+  "scripts": {
+    "build": "pnpm build:packages && pnpm build:apps",
+    "build:packages": "pnpm --filter ./packages/** --if-present --workspace-concurrency=1 run build",
+    "build:apps": "pnpm --filter ./apps/** --if-present --workspace-concurrency=1 run build",
+    "check": "pnpm format:check && pnpm lint && pnpm typecheck && pnpm test && pnpm build",
+    "db:migrate": "pnpm --filter @feishu-agent/database run migrate",
+    "dev": "pnpm build:packages && pnpm --parallel --filter ./apps/** --if-present run dev",
+    "dev:infra": "docker compose --env-file .env -f deploy/docker/compose.dev.yml up -d",
+    "dev:infra:down": "docker compose --env-file .env -f deploy/docker/compose.dev.yml down",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "tsc --noEmit -p tsconfig.json"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.39.1",
+    "@types/node": "^24.10.1",
+    "@types/react": "^19.2.2",
+    "@types/react-dom": "^19.2.2",
+    "@vitejs/plugin-react": "^5.1.1",
+    "eslint": "^9.39.1",
+    "eslint-plugin-react-hooks": "^7.0.1",
+    "eslint-plugin-react-refresh": "^0.4.24",
+    "globals": "^16.5.0",
+    "prettier": "^3.6.2",
+    "tsup": "^8.5.0",
+    "tsx": "^4.20.6",
+    "typescript": "^5.9.3",
+    "typescript-eslint": "^8.46.4",
+    "vite": "^7.2.2",
+    "vitest": "^4.0.8"
+  }
+}

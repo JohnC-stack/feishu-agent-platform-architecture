@@ -1,0 +1,16 @@
+{
+  "name": "@feishu-agent/windows-worker",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "tsup src/index.ts --format esm --sourcemap --clean",
+    "dev": "tsx watch src/index.ts",
+    "start": "node dist/index.js"
+  },
+  "dependencies": {
+    "@feishu-agent/executors": "workspace:*",
+    "@feishu-agent/observability": "workspace:*",
+    "fastify": "^5.6.2"
+  }
+}

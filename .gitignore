@@ -2,8 +2,11 @@
 *.log
 .env
 .env.*
+!.env.example
 node_modules/
 dist/
 coverage/
 .codex/
 workspaces/
+.pnpm-store/
+*.tsbuildinfo

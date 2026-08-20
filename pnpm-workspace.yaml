@@ -1,0 +1,10 @@
+packages:
+  - apps/*
+  - packages/*
+
+autoInstallPeers: true
+engineStrict: true
+strictPeerDependencies: false
+
+allowBuilds:
+  esbuild: true
