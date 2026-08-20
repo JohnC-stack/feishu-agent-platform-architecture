@@ -1,8 +1,8 @@
 # 飞书 Agent 平台实施状态
 
 - 更新日期：2026-08-21
-- 当前阶段：P3 三类执行器
-- 总体状态：P0、P1、P2 已关闭；P3 本地实现和修订后的活动通道验收已完成，API/ReAct 按决策关闭，尚待发布与远端门禁
+- 当前阶段：P3 已关闭；P4 尚未开始
+- 总体状态：P0、P1、P2、P3 已关闭；API/ReAct 按决策关闭，等待用户指令后才进入 P4
 - 工作分支：`docs/hybrid-architecture-plan`
 
 ## P0 任务状态
@@ -41,6 +41,7 @@
 - [CI #2](https://github.com/JohnC-stack/feishu-agent-platform-architecture/actions/runs/32350371374) 完成，结论为 `success`。
 - [Security #2](https://github.com/JohnC-stack/feishu-agent-platform-architecture/actions/runs/32350371395) 完成，dependency-audit 与 secret-scan 均通过，结论为 `success`。
 - 使用 Linux Node 24 容器对提交 `ba25693` 运行冻结依赖安装与完整 `pnpm check`，退出码为 0。
+- P3 功能提交：`4aa7fe0`；[CI](https://github.com/JohnC-stack/feishu-agent-platform-architecture/actions/runs/32395266254) 与 [Security](https://github.com/JohnC-stack/feishu-agent-platform-architecture/actions/runs/32395266086) 均为 `success`。
 
 ## P0 阶段出口
 
@@ -110,4 +111,4 @@ P2 本地实现、自动化测试、真实 PostgreSQL/Redis、并发、重试、
 
 ## P3 阶段出口
 
-P3 代码、DirectTool、Agent CLI、数据库、队列、工作区、故障门禁以及 API 关闭门禁已通过本地验收。OpenAI API/ReAct 适配器保留但由 `API_AGENT_ENABLED=false` 强制关闭，不属于当前活动通道出口条件。本阶段代码尚未发布并通过远端 CI/Security；完成发布与远端门禁前，P3 保持未关闭，不进入 P4。
+P3 代码、DirectTool、Agent CLI、数据库、队列、工作区、故障门禁以及 API 关闭门禁已通过本地验收。OpenAI API/ReAct 适配器保留但由 `API_AGENT_ENABLED=false` 强制关闭，不属于当前活动通道出口条件。功能提交 `4aa7fe0` 的远端 CI 与 Security 均为 `success`，P3 于 2026-08-21 关闭；P4 尚未开始。
