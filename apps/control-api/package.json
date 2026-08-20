@@ -5,11 +5,20 @@
   "type": "module",
   "scripts": {
     "build": "tsup src/index.ts --format esm --sourcemap --clean",
-    "dev": "tsx watch src/index.ts",
-    "start": "node dist/index.js"
+    "dev": "tsx --env-file-if-exists=../../.env watch src/index.ts",
+    "start": "node --env-file-if-exists=../../.env dist/index.js",
+    "verify:queue": "tsx --env-file-if-exists=../../.env src/verify-task-queue.ts",
+    "verify:recovery": "tsx --env-file-if-exists=../../.env src/verify-worker-recovery.ts",
+    "verify:coordinator": "tsx --env-file-if-exists=../../.env src/verify-task-coordinator.ts"
   },
   "dependencies": {
+    "@feishu-agent/contracts": "workspace:*",
+    "@feishu-agent/database": "workspace:*",
     "@feishu-agent/observability": "workspace:*",
-    "fastify": "^5.6.2"
+    "@feishu-agent/policy": "workspace:*",
+    "bullmq": "6.1.2",
+    "fastify": "^5.6.2",
+    "ioredis": "5.8.2",
+    "zod": "^4.1.12"
   }
 }

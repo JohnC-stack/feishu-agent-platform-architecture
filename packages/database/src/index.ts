@@ -1,5 +1,7 @@
 import postgres from 'postgres';
 
+export * from './task-repository.js';
+
 export type DatabaseClient = ReturnType<typeof postgres>;
 
 export function createDatabaseClient(connectionString = process.env.DATABASE_URL): DatabaseClient {

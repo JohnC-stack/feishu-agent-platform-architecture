@@ -1,6 +1,11 @@
 import { describe, expect, it } from 'vitest';
 
-import { ExecutorEventSchema, TaskRequestSchema } from './index.js';
+import {
+  ExecutorEventSchema,
+  RouteRuleSchema,
+  TaskRequestSchema,
+  TaskTransitionSchema,
+} from './index.js';
 
 const taskId = 'f5a7d7d4-2ca8-48ab-b65d-b9f85ed35d3f';
 
@@ -33,6 +38,31 @@ describe('ExecutorEventSchema', () => {
       sequence: -1,
       kind: 'started',
       createdAt: '2026-08-20T00:00:00.000Z',
+    });
+
+    expect(result.success).toBe(false);
+  });
+});
+
+describe('P2 scheduling contracts', () => {
+  it('validates an auditable task transition', () => {
+    expect(
+      TaskTransitionSchema.parse({
+        taskId,
+        from: 'queued',
+        to: 'running',
+        occurredAt: '2026-08-20T00:00:01.000Z',
+      }),
+    ).toMatchObject({ from: 'queued', to: 'running' });
+  });
+
+  it('requires every routing rule to carry a positive version', () => {
+    const result = RouteRuleSchema.safeParse({
+      id: 'health-direct',
+      version: 0,
+      priority: 100,
+      condition: { commands: ['/health'] },
+      executor: 'direct_tool',
     });
 
     expect(result.success).toBe(false);

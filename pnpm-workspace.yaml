@@ -8,4 +8,5 @@ strictPeerDependencies: false
 
 allowBuilds:
   esbuild: true
+  msgpackr-extract: false
   protobufjs: true
