@@ -1,0 +1,169 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="2400" height="1500" viewBox="0 0 2400 1500">
+  <defs>
+    <filter id="shadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="4" stdDeviation="7" flood-color="#0F172A" flood-opacity="0.08"/>
+    </filter>
+    <marker id="blue-arrow" markerWidth="12" markerHeight="12" refX="10" refY="6" orient="auto"><path d="M0 0L12 6L0 12Z" fill="#2563EB"/></marker>
+    <marker id="green-arrow" markerWidth="12" markerHeight="12" refX="10" refY="6" orient="auto"><path d="M0 0L12 6L0 12Z" fill="#059669"/></marker>
+    <marker id="purple-arrow" markerWidth="12" markerHeight="12" refX="10" refY="6" orient="auto"><path d="M0 0L12 6L0 12Z" fill="#7C3AED"/></marker>
+    <marker id="gray-arrow" markerWidth="12" markerHeight="12" refX="10" refY="6" orient="auto"><path d="M0 0L12 6L0 12Z" fill="#64748B"/></marker>
+    <style>
+      text{font-family:"Microsoft YaHei","PingFang SC","Noto Sans CJK SC",Arial,sans-serif}
+      .h1{font-size:38px;font-weight:700;fill:#0F172A}.subtitle{font-size:18px;fill:#64748B}
+      .zone-title{font-size:22px;font-weight:700;fill:#0F172A}.zone-sub{font-size:14px;fill:#64748B}
+      .section-title{font-size:20px;font-weight:700;fill:#0F172A}.title{font-size:18px;font-weight:700;fill:#0F172A}
+      .desc{font-size:14px;fill:#475569}.note{font-size:13px;font-weight:700}.label{font-size:13px;font-weight:700;fill:#334155}
+      .zone{fill:#FFFFFF;stroke:#CBD5E1;stroke-width:2}.compute{fill:#F8FAFC;stroke:#2563EB;stroke-width:3}
+      .native{fill:#EFF6FF;stroke:#93C5FD;stroke-width:2}.vm{fill:#F0FDF4;stroke:#6EE7B7;stroke-width:2}
+      .node{fill:#FFFFFF;stroke:#CBD5E1;stroke-width:2;filter:url(#shadow)}
+      .blue-node{fill:#EFF6FF;stroke:#93C5FD;stroke-width:2;filter:url(#shadow)}
+      .green-node{fill:#ECFDF5;stroke:#6EE7B7;stroke-width:2;filter:url(#shadow)}
+      .purple-node{fill:#F5F3FF;stroke:#C4B5FD;stroke-width:2;filter:url(#shadow)}
+      .orange-node{fill:#FFF7ED;stroke:#FDBA74;stroke-width:2;filter:url(#shadow)}
+      .blue{fill:none;stroke:#2563EB;stroke-width:4;stroke-linecap:round;stroke-linejoin:round;marker-end:url(#blue-arrow)}
+      .green{fill:none;stroke:#059669;stroke-width:4;stroke-linecap:round;stroke-linejoin:round;marker-end:url(#green-arrow)}
+      .purple{fill:none;stroke:#7C3AED;stroke-width:4;stroke-linecap:round;stroke-linejoin:round;marker-end:url(#purple-arrow)}
+      .gray{fill:none;stroke:#64748B;stroke-width:3;stroke-linecap:round;stroke-linejoin:round;marker-end:url(#gray-arrow)}
+      .dash{stroke-dasharray:10 8}.plate{fill:#FFFFFF;stroke:#CBD5E1;stroke-width:1.5}
+    </style>
+  </defs>
+
+  <rect width="2400" height="1500" fill="#F4F7FB"/>
+  <text x="60" y="64" class="h1">飞书 Agent 平台 — 混合部署与网络拓扑</text>
+  <text x="60" y="101" class="subtitle">Windows 原生执行面 + Hyper-V Linux Docker 控制面；飞书仅出站 WSS，管理台仅限内网 / VPN</text>
+
+  <g transform="translate(1550,62)">
+    <line x1="0" y1="0" x2="58" y2="0" class="blue"/><text x="72" y="6" class="desc">消息 / 管理流量</text>
+    <line x1="210" y1="0" x2="268" y2="0" class="green"/><text x="282" y="6" class="desc">确定性 / 内网调用</text>
+    <line x1="470" y1="0" x2="528" y2="0" class="purple dash"/><text x="542" y="6" class="desc">模型 / Agent 调用</text>
+  </g>
+
+  <!-- Security zones -->
+  <rect x="60" y="145" width="280" height="1265" rx="16" class="zone"/>
+  <rect x="375" y="145" width="380" height="1265" rx="16" class="zone"/>
+  <rect x="790" y="145" width="120" height="1265" rx="14" fill="#E2E8F0" stroke="#94A3B8" stroke-width="2"/>
+  <rect x="945" y="145" width="1010" height="1265" rx="18" class="compute"/>
+  <rect x="1990" y="145" width="350" height="1265" rx="16" class="zone"/>
+
+  <text x="86" y="190" class="zone-title">用户与运维终端</text><text x="86" y="218" class="zone-sub">飞书用户 / 企业管理员</text>
+  <text x="403" y="190" class="zone-title">互联网 / SaaS</text><text x="403" y="218" class="zone-sub">飞书云与外部模型服务</text>
+  <text x="973" y="190" class="zone-title">公司内网计算区</text><text x="973" y="218" class="zone-sub">Windows Server 2022 · 不开放公网入站</text>
+  <text x="2018" y="190" class="zone-title">企业资源区</text><text x="2018" y="218" class="zone-sub">服务账号与白名单访问</text>
+
+  <!-- Endpoints -->
+  <rect x="95" y="315" width="210" height="120" rx="14" class="node"/>
+  <circle cx="137" cy="365" r="23" fill="#64748B"/><circle cx="130" cy="357" r="6" fill="#FFF"/><circle cx="145" cy="357" r="6" fill="#FFF"/>
+  <path d="M120 379C125 367 150 367 155 379" fill="none" stroke="#FFF" stroke-width="4" stroke-linecap="round"/>
+  <text x="174" y="360" class="title">飞书用户</text><text x="174" y="390" class="desc">私聊 / 群聊 @</text>
+
+  <rect x="95" y="665" width="210" height="135" rx="14" class="blue-node"/>
+  <rect x="118" y="704" width="48" height="34" rx="4" fill="none" stroke="#2563EB" stroke-width="4"/><path d="M132 751H154M143 738V751" stroke="#2563EB" stroke-width="4" stroke-linecap="round"/>
+  <text x="181" y="710" class="title">运维管理员</text><text x="181" y="740" class="desc">管理台 / 审批</text><text x="181" y="767" class="desc">仅公司内网或 VPN</text>
+
+  <!-- SaaS -->
+  <rect x="420" y="280" width="290" height="275" rx="18" class="blue-node"/>
+  <circle cx="470" cy="335" r="27" fill="#2563EB"/><text x="470" y="345" text-anchor="middle" style="font-size:23px;font-weight:700;fill:#FFF">飞</text>
+  <text x="515" y="330" class="section-title">飞书云平台</text><text x="515" y="360" class="desc">事件网关 + OpenAPI</text>
+  <rect x="452" y="402" width="226" height="58" rx="10" fill="#FFF" stroke="#93C5FD" stroke-width="2"/><text x="565" y="438" text-anchor="middle" class="title">WSS 长连接事件</text>
+  <rect x="452" y="477" width="226" height="52" rx="10" fill="#FFF" stroke="#93C5FD" stroke-width="2"/><text x="565" y="510" text-anchor="middle" class="title">消息 OpenAPI</text>
+
+  <rect x="420" y="880" width="290" height="175" rx="18" class="purple-node"/>
+  <circle cx="470" cy="940" r="27" fill="#7C3AED"/><text x="470" y="949" text-anchor="middle" style="font-size:18px;font-weight:700;fill:#FFF">AI</text>
+  <text x="515" y="933" class="section-title">外部模型服务</text><text x="515" y="963" class="desc">OpenAI / 其他厂商</text><text x="515" y="990" class="desc">HTTPS 443 · 主动出站</text>
+
+  <path d="M305 375H420" class="blue"/><rect x="320" y="330" width="85" height="30" rx="6" class="plate"/><text x="362" y="350" text-anchor="middle" class="label">消息</text>
+
+  <!-- Boundary -->
+  <text x="850" y="190" text-anchor="middle" class="zone-title">边界</text><text x="850" y="218" text-anchor="middle" class="zone-sub">Firewall / NAT</text>
+  <path d="M820 520H880V650H820ZM820 563H880M820 606H880M840 520V563M860 563V606M840 606V650" fill="#FFF" stroke="#475569" stroke-width="4"/>
+  <rect x="805" y="705" width="90" height="120" rx="12" fill="#FEF2F2" stroke="#FCA5A5" stroke-width="2"/>
+  <circle cx="850" cy="743" r="18" fill="#DC2626"/><path d="M843 736L857 750M857 736L843 750" stroke="#FFF" stroke-width="3" stroke-linecap="round"/>
+  <text x="850" y="780" text-anchor="middle" style="font-size:14px;font-weight:700;fill:#B91C1C">公网入站</text><text x="850" y="803" text-anchor="middle" style="font-size:14px;font-weight:700;fill:#B91C1C">全部拒绝</text>
+
+  <!-- Windows host / native execution plane -->
+  <rect x="980" y="255" width="940" height="480" rx="16" class="native"/>
+  <text x="1005" y="293" class="section-title">Windows 原生执行面</text><text x="1260" y="293" class="zone-sub">Windows Service · 本机凭据 / VPN / 工作区 / CLI</text>
+
+  <rect x="1015" y="335" width="250" height="120" rx="12" class="green-node"/>
+  <circle cx="1055" cy="385" r="22" fill="#059669"/><path d="M1044 386A11 11 0 0 1 1066 386M1038 386A17 17 0 0 1 1072 386" fill="none" stroke="#FFF" stroke-width="3"/>
+  <text x="1090" y="378" class="title">飞书 WSS Gateway</text><text x="1090" y="408" class="desc">事件接入 / 回复调度</text><text x="1090" y="432" class="note" fill="#047857">只建立出站连接</text>
+
+  <rect x="1310" y="335" width="250" height="120" rx="12" class="orange-node"/>
+  <polygon points="1350,370 1370,390 1350,410 1330,390" fill="#D97706"/>
+  <text x="1390" y="378" class="title">执行代理 / 策略桥</text><text x="1390" y="408" class="desc">路由 / 权限 / 超时</text><text x="1390" y="432" class="desc">与控制面双向通信</text>
+
+  <rect x="1015" y="525" width="250" height="135" rx="12" class="green-node"/>
+  <circle cx="1055" cy="580" r="22" fill="#059669"/><path d="M1044 580L1053 589L1069 570" fill="none" stroke="#FFF" stroke-width="4" stroke-linecap="round"/>
+  <text x="1090" y="567" class="title">DirectToolExecutor</text><text x="1090" y="597" class="desc">REST / glab / 专用 CLI</text><text x="1090" y="624" class="note" fill="#047857">明确任务：0 模型 Token</text>
+
+  <rect x="1310" y="525" width="250" height="135" rx="12" class="purple-node"/>
+  <circle cx="1350" cy="580" r="22" fill="#7C3AED"/><text x="1350" y="588" text-anchor="middle" style="font-size:16px;font-weight:700;fill:#FFF">CLI</text>
+  <text x="1385" y="567" class="title">AgentCliExecutor</text><text x="1385" y="597" class="desc">Codex / 可替换 Agent CLI</text><text x="1385" y="624" class="note" fill="#6D28D9">代码与本地复杂任务</text>
+
+  <rect x="1605" y="525" width="275" height="135" rx="12" class="node"/>
+  <circle cx="1645" cy="580" r="22" fill="#475569"/><path d="M1634 570H1656V590H1634Z" fill="none" stroke="#FFF" stroke-width="3"/>
+  <text x="1680" y="567" class="title">Hyper-V 沙箱</text><text x="1680" y="597" class="desc">任务级工作区 / 最小权限</text><text x="1680" y="624" class="desc">高风险任务使用强隔离</text>
+
+  <path d="M1265 395H1310" class="gray"/><path d="M1435 455V490H1140V525" class="green"/><path d="M1435 455V525" class="purple"/><path d="M1560 395H1742V525" class="gray"/>
+
+  <!-- Hyper-V Linux VM / Docker control plane -->
+  <rect x="980" y="775" width="940" height="525" rx="16" class="vm"/>
+  <text x="1005" y="813" class="section-title">Hyper-V Linux VM · Docker 控制面</text><text x="1370" y="813" class="zone-sub">内部网络，不直接暴露公网</text>
+
+  <rect x="1015" y="855" width="250" height="125" rx="12" class="blue-node"/>
+  <circle cx="1055" cy="907" r="22" fill="#2563EB"/><path d="M1044 897H1066V913H1055L1049 920V913H1044Z" fill="none" stroke="#FFF" stroke-width="2.5"/>
+  <text x="1090" y="895" class="title">Web 管理台 + API</text><text x="1090" y="925" class="desc">配置 / 审批 / 运维</text><text x="1090" y="952" class="desc">RBAC · 内网 HTTPS</text>
+
+  <rect x="1310" y="855" width="250" height="125" rx="12" class="node"/>
+  <ellipse cx="1350" cy="899" rx="21" ry="7" fill="#E2E8F0" stroke="#64748B" stroke-width="2"/><path d="M1329 899V928Q1329 940 1371 940V899" fill="#E2E8F0" stroke="#64748B" stroke-width="2"/>
+  <text x="1385" y="895" class="title">调度与任务队列</text><text x="1385" y="925" class="desc">规则路由 / BullMQ</text><text x="1385" y="952" class="desc">Redis · 会话 / 重试</text>
+
+  <rect x="1605" y="855" width="275" height="125" rx="12" class="purple-node"/>
+  <circle cx="1645" cy="907" r="22" fill="#7C3AED"/><text x="1645" y="915" text-anchor="middle" style="font-size:17px;font-weight:700;fill:#FFF">API</text>
+  <text x="1680" y="895" class="title">ApiAgentExecutor</text><text x="1680" y="925" class="desc">Responses API / ReAct</text><text x="1680" y="952" class="desc">跨系统只读智能任务</text>
+
+  <rect x="1015" y="1055" width="250" height="125" rx="12" class="node"/>
+  <ellipse cx="1055" cy="1098" rx="21" ry="7" fill="#E2E8F0" stroke="#64748B" stroke-width="2"/><path d="M1034 1098V1129Q1034 1141 1076 1141V1098" fill="#E2E8F0" stroke="#64748B" stroke-width="2"/>
+  <text x="1090" y="1095" class="title">PostgreSQL</text><text x="1090" y="1125" class="desc">配置 / 会话 / 审计</text><text x="1090" y="1152" class="desc">加密卷与定时备份</text>
+
+  <rect x="1310" y="1055" width="250" height="125" rx="12" class="node"/>
+  <circle cx="1350" cy="1107" r="22" fill="#475569"/><path d="M1338 1115L1345 1101L1352 1110L1361 1094" fill="none" stroke="#FFF" stroke-width="3" stroke-linecap="round"/>
+  <text x="1385" y="1095" class="title">可观测性中心</text><text x="1385" y="1125" class="desc">Logs / Metrics / Trace</text><text x="1385" y="1152" class="desc">Token / 成本 / 告警</text>
+
+  <rect x="1605" y="1055" width="275" height="125" rx="12" class="orange-node"/>
+  <circle cx="1645" cy="1107" r="22" fill="#D97706"/><path d="M1635 1107L1643 1115L1657 1098" fill="none" stroke="#FFF" stroke-width="3" stroke-linecap="round"/>
+  <text x="1680" y="1095" class="title">发布与恢复</text><text x="1680" y="1125" class="desc">健康检查 / 备份校验</text><text x="1680" y="1152" class="desc">升级 / 回滚 / 灾备演练</text>
+
+  <path d="M1265 917H1310" class="gray"/><path d="M1560 917H1605" class="purple"/><path d="M1140 980V1055" class="gray"/><path d="M1435 980V1055" class="gray"/><path d="M1742 980V1055" class="gray"/>
+
+  <!-- Plane connection -->
+  <path d="M1435 660V745H1435V855" class="gray"/>
+  <rect x="1455" y="728" width="165" height="30" rx="6" class="plate"/><text x="1537" y="748" text-anchor="middle" class="label">内部 mTLS / 队列</text>
+
+  <!-- Feishu and model outbound paths -->
+  <path d="M1015 375H910H755" class="green"/><rect x="735" y="330" width="158" height="30" rx="6" class="plate"/><text x="814" y="350" text-anchor="middle" class="label">主动建立 WSS 443</text>
+  <path d="M755 430H930H1015" class="blue"/><rect x="780" y="445" width="130" height="30" rx="6" class="plate"/><text x="845" y="465" text-anchor="middle" class="label">已建链路推送</text>
+  <path d="M1605 930H925V955H710" class="purple dash"/><rect x="745" y="910" width="130" height="30" rx="6" class="plate"/><text x="810" y="930" text-anchor="middle" class="label">模型 HTTPS 443</text>
+  <path d="M1310 600H930V1010H710" class="purple dash"/>
+
+  <!-- Admin internal path -->
+  <path d="M305 732H350V1345H1100V980" class="blue"/><rect x="480" y="1324" width="190" height="30" rx="6" class="plate"/><text x="575" y="1344" text-anchor="middle" class="label">公司内网 / VPN HTTPS</text>
+
+  <!-- Enterprise systems -->
+  <rect x="2025" y="290" width="280" height="125" rx="14" class="orange-node"/>
+  <circle cx="2065" cy="342" r="22" fill="#D97706"/><path d="M2055 342L2063 350L2077 333" fill="none" stroke="#FFF" stroke-width="3" stroke-linecap="round"/>
+  <text x="2100" y="330" class="title">内网访问控制</text><text x="2100" y="360" class="desc">服务账号 / 白名单</text><text x="2100" y="387" class="desc">读写分离 / 操作审批</text>
+
+  <rect x="2040" y="515" width="250" height="100" rx="12" class="node"/><circle cx="2080" cy="555" r="21" fill="#FC6D26"/><text x="2080" y="563" text-anchor="middle" style="font-size:16px;font-weight:700;fill:#FFF">G</text><text x="2115" y="550" class="title">GitLab</text><text x="2115" y="580" class="desc">Repo / MR / CI</text>
+  <rect x="2040" y="685" width="250" height="100" rx="12" class="node"/><circle cx="2080" cy="725" r="21" fill="#0052CC"/><text x="2080" y="733" text-anchor="middle" style="font-size:16px;font-weight:700;fill:#FFF">C</text><text x="2115" y="720" class="title">Confluence</text><text x="2115" y="750" class="desc">页面 / 附件 / 搜索</text>
+  <rect x="2040" y="855" width="250" height="100" rx="12" class="node"/><circle cx="2080" cy="895" r="21" fill="#475569"/><rect x="2071" y="883" width="18" height="24" rx="2" fill="none" stroke="#FFF" stroke-width="3"/><text x="2115" y="890" class="title">业务系统</text><text x="2115" y="920" class="desc">内网 API / 数据服务</text>
+  <rect x="2040" y="1100" width="250" height="110" rx="12" class="blue-node"/><circle cx="2080" cy="1145" r="21" fill="#2563EB"/><path d="M2069 1145H2091M2080 1134V1156" stroke="#FFF" stroke-width="3"/><text x="2115" y="1140" class="title">备份目标</text><text x="2115" y="1170" class="desc">NAS / 企业备份系统</text>
+
+  <path d="M1265 590H1960V352H2025" class="green"/><rect x="1810" y="325" width="128" height="30" rx="6" class="plate"/><text x="1874" y="345" text-anchor="middle" class="label">受控内网调用</text>
+  <path d="M2165 415V515" class="gray"/><path d="M2165 615V685" class="gray"/><path d="M2165 785V855" class="gray"/>
+  <path d="M1880 1118H2040" class="blue"/><rect x="1892" y="1075" width="135" height="30" rx="6" class="plate"/><text x="1959" y="1095" text-anchor="middle" class="label">加密备份</text>
+
+  <!-- Footer principles -->
+  <rect x="60" y="1435" width="2280" height="42" rx="10" fill="#E8EEF7"/>
+  <text x="82" y="1462" class="label">网络原则：公网入站为 0 · 飞书 WSS 与模型 API 均主动出站 · 管理台仅限内网 / VPN · Windows 主机不运行 Docker Desktop · 高风险任务使用 Hyper-V 强隔离</text>
+</svg>
