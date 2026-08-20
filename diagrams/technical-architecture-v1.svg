@@ -1,0 +1,270 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="2400" height="1400" viewBox="0 0 2400 1400">
+  <defs>
+    <filter id="shadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="4" stdDeviation="7" flood-color="#0F172A" flood-opacity="0.08"/>
+    </filter>
+    <marker id="ab" markerWidth="12" markerHeight="12" refX="10" refY="6" orient="auto"><path d="M0 0L12 6L0 12Z" fill="#2563EB"/></marker>
+    <marker id="ag" markerWidth="12" markerHeight="12" refX="10" refY="6" orient="auto"><path d="M0 0L12 6L0 12Z" fill="#059669"/></marker>
+    <marker id="ap" markerWidth="12" markerHeight="12" refX="10" refY="6" orient="auto"><path d="M0 0L12 6L0 12Z" fill="#7C3AED"/></marker>
+    <marker id="ar" markerWidth="12" markerHeight="12" refX="10" refY="6" orient="auto"><path d="M0 0L12 6L0 12Z" fill="#64748B"/></marker>
+    <style>
+      text{font-family:"PingFang SC","Microsoft YaHei","Noto Sans CJK SC",Arial,sans-serif}
+      .h1{font-size:38px;font-weight:700;fill:#0F172A}.sub{font-size:19px;fill:#64748B}
+      .sys-title{font-size:23px;font-weight:700;fill:#0F172A}.sys-sub{font-size:15px;fill:#64748B}
+      .group-title{font-size:18px;font-weight:700;fill:#334155;letter-spacing:.4px}
+      .title{font-size:19px;font-weight:700;fill:#0F172A}.desc{font-size:14px;fill:#475569}.note{font-size:13px;font-weight:700}
+      .zone{fill:#FFFFFF;stroke:#CBD5E1;stroke-width:2}.system{fill:#F8FAFC;stroke:#2563EB;stroke-width:3}
+      .group{fill:#FFFFFF;stroke:#CBD5E1;stroke-width:1.5;stroke-dasharray:7 6}
+      .node{fill:#FFFFFF;stroke:#CBD5E1;stroke-width:2;filter:url(#shadow)}
+      .blue-node{fill:#EFF6FF;stroke:#93C5FD;stroke-width:2;filter:url(#shadow)}
+      .green-node{fill:#ECFDF5;stroke:#6EE7B7;stroke-width:2;filter:url(#shadow)}
+      .purple-node{fill:#F5F3FF;stroke:#C4B5FD;stroke-width:2;filter:url(#shadow)}
+      .orange-node{fill:#FFF7ED;stroke:#FDBA74;stroke-width:2;filter:url(#shadow)}
+      .blue{fill:none;stroke:#2563EB;stroke-width:4;stroke-linecap:round;stroke-linejoin:round;marker-end:url(#ab)}
+      .green{fill:none;stroke:#059669;stroke-width:4;stroke-linecap:round;stroke-linejoin:round;marker-end:url(#ag)}
+      .purple{fill:none;stroke:#7C3AED;stroke-width:4;stroke-linecap:round;stroke-linejoin:round;marker-end:url(#ap)}
+      .gray{fill:none;stroke:#64748B;stroke-width:3;stroke-linecap:round;stroke-linejoin:round;marker-end:url(#ar)}
+      .dash{stroke-dasharray:10 8}.label{font-size:14px;font-weight:700;fill:#334155}
+      .plate{fill:#F8FAFC;stroke:#CBD5E1;stroke-width:1.5}
+    </style>
+  </defs>
+
+  <rect width="2400" height="1400" fill="#F4F7FB"/>
+  <text x="60" y="64" class="h1">飞书 Agent 平台 — 技术架构</text>
+  <text x="60" y="101" class="sub">轻量程序调度 · 确定性调用优先 · Agent CLI 可替换 · MCP 按需加载 · 全链路成本与权限治理</text>
+
+  <g transform="translate(1650,60)">
+    <line x1="0" y1="0" x2="58" y2="0" class="blue"/><text x="72" y="6" class="desc">任务 / 结果</text>
+    <line x1="185" y1="0" x2="243" y2="0" class="green"/><text x="257" y="6" class="desc">确定性工具调用</text>
+    <line x1="410" y1="0" x2="468" y2="0" class="purple dash"/><text x="482" y="6" class="desc">Agent / MCP 调用</text>
+  </g>
+
+  <!-- 外部接入 -->
+  <rect x="55" y="145" width="330" height="1165" rx="16" class="zone"/>
+  <text x="82" y="190" class="sys-title">渠道与外部入口</text>
+  <text x="82" y="218" class="sys-sub">平台外部系统</text>
+
+  <rect x="95" y="310" width="250" height="125" rx="14" class="node"/>
+  <circle cx="140" cy="365" r="24" fill="#64748B"/>
+  <circle cx="133" cy="357" r="6" fill="#FFFFFF"/><circle cx="148" cy="357" r="6" fill="#FFFFFF"/>
+  <path d="M123 378C128 366 153 366 158 378" fill="none" stroke="#FFFFFF" stroke-width="4" stroke-linecap="round"/>
+  <text x="177" y="361" class="title">飞书群聊用户</text>
+  <text x="177" y="392" class="desc">@机器人 / 私聊 / 卡片交互</text>
+
+  <rect x="95" y="535" width="250" height="145" rx="14" class="blue-node"/>
+  <circle cx="140" cy="595" r="26" fill="#2563EB"/>
+  <text x="140" y="604" text-anchor="middle" style="font-size:22px;font-weight:700;fill:#FFFFFF">飞</text>
+  <text x="177" y="583" class="title">飞书开放平台</text>
+  <text x="177" y="614" class="desc">事件网关 / WSS</text>
+  <text x="177" y="642" class="desc">消息 OpenAPI</text>
+
+  <path d="M220 435V535" class="blue"/>
+  <rect x="235" y="471" width="80" height="30" rx="6" class="plate"/><text x="275" y="491" text-anchor="middle" class="label">消息</text>
+
+  <!-- Agent 平台系统边界 -->
+  <rect x="425" y="145" width="1510" height="1165" rx="18" class="system"/>
+  <text x="458" y="190" class="sys-title">Windows Agent Platform</text>
+  <text x="458" y="218" class="sys-sub">Node.js / TypeScript 服务 · Windows Service 托管 · 无模型 SDK 绑定</text>
+
+  <!-- 接入层 -->
+  <rect x="465" y="260" width="300" height="775" rx="14" class="group"/>
+  <text x="487" y="294" class="group-title">01 · 消息接入层</text>
+
+  <rect x="500" y="335" width="230" height="122" rx="12" class="green-node"/>
+  <circle cx="540" cy="384" r="21" fill="#059669"/>
+  <path d="M529 385A11 11 0 0 1 551 385M523 385A17 17 0 0 1 557 385" fill="none" stroke="#FFFFFF" stroke-width="3"/>
+  <text x="573" y="378" class="title">长连接监听器</text>
+  <text x="573" y="408" class="desc">飞书官方 SDK / WSS</text>
+  <text x="573" y="432" class="note" fill="#047857">仅主动出站</text>
+
+  <rect x="500" y="505" width="230" height="135" rx="12" class="node"/>
+  <circle cx="540" cy="558" r="21" fill="#475569"/>
+  <path d="M540 542L553 548L550 566Q540 578 530 566L527 548Z" fill="none" stroke="#FFFFFF" stroke-width="3"/>
+  <text x="573" y="550" class="title">事件处理管道</text>
+  <text x="573" y="580" class="desc">验签 / 解析 / 去重</text>
+  <text x="573" y="607" class="desc">@过滤 / 限流 / 幂等</text>
+
+  <rect x="500" y="815" width="230" height="135" rx="12" class="blue-node"/>
+  <circle cx="540" cy="868" r="21" fill="#2563EB"/>
+  <path d="M529 858H551V874H540L534 881V874H529Z" fill="none" stroke="#FFFFFF" stroke-width="2.5"/>
+  <text x="573" y="860" class="title">回复调度器</text>
+  <text x="573" y="890" class="desc">文本 / 卡片 / 文件</text>
+  <text x="573" y="917" class="desc">统一控制回复目标</text>
+
+  <path d="M615 457V505" class="gray"/>
+
+  <!-- 调度控制层 -->
+  <rect x="795" y="260" width="340" height="775" rx="14" class="group"/>
+  <text x="817" y="294" class="group-title">02 · 调度与控制层</text>
+
+  <rect x="830" y="335" width="270" height="115" rx="12" class="node"/>
+  <ellipse cx="870" cy="374" rx="20" ry="7" fill="#E2E8F0" stroke="#64748B" stroke-width="2"/>
+  <path d="M850 374V401Q850 413 890 413V374" fill="#E2E8F0" stroke="#64748B" stroke-width="2"/>
+  <ellipse cx="870" cy="401" rx="20" ry="7" fill="#E2E8F0" stroke="#64748B" stroke-width="2"/>
+  <text x="905" y="372" class="title">异步任务队列</text>
+  <text x="905" y="402" class="desc">Redis + BullMQ</text>
+  <text x="905" y="428" class="desc">削峰 / 超时 / 重试 / 并发</text>
+
+  <rect x="830" y="500" width="270" height="145" rx="12" class="orange-node"/>
+  <polygon points="870,542 891,563 870,584 849,563" fill="#D97706"/>
+  <text x="910" y="548" class="title">规则任务路由器</text>
+  <text x="910" y="578" class="desc">命令识别 / 任务分类</text>
+  <text x="910" y="605" class="desc">模型策略 / 成本预算</text>
+  <text x="910" y="630" class="note" fill="#B45309">普通程序，不调用模型</text>
+
+  <rect x="830" y="700" width="270" height="135" rx="12" class="node"/>
+  <circle cx="870" cy="752" r="21" fill="#64748B"/>
+  <path d="M858 752H882M870 740V764" stroke="#FFFFFF" stroke-width="3" stroke-linecap="round"/>
+  <text x="905" y="744" class="title">会话上下文管理</text>
+  <text x="905" y="774" class="desc">群 / 用户 / 任务隔离</text>
+  <text x="905" y="801" class="desc">摘要 + 最近消息 + 检索片段</text>
+
+  <rect x="830" y="875" width="270" height="115" rx="12" class="orange-node"/>
+  <circle cx="870" cy="920" r="21" fill="#D97706"/>
+  <path d="M860 920L868 928L882 911" fill="none" stroke="#FFFFFF" stroke-width="3" stroke-linecap="round"/>
+  <text x="905" y="913" class="title">策略与审批中心</text>
+  <text x="905" y="943" class="desc">权限 / Token 配额 / 写操作确认</text>
+  <text x="905" y="969" class="desc">用户委托身份与审计</text>
+
+  <path d="M965 450V500" class="gray"/>
+  <path d="M965 645V700" class="gray"/>
+  <path d="M965 835V875" class="gray"/>
+
+  <!-- 执行层 -->
+  <rect x="1165" y="260" width="340" height="775" rx="14" class="group"/>
+  <text x="1187" y="294" class="group-title">03 · 任务执行层</text>
+
+  <rect x="1200" y="335" width="270" height="125" rx="12" class="blue-node"/>
+  <circle cx="1240" cy="385" r="21" fill="#2563EB"/>
+  <text x="1240" y="393" text-anchor="middle" style="font-size:16px;font-weight:700;fill:#FFFFFF">EX</text>
+  <text x="1275" y="378" class="title">Executor Adapter</text>
+  <text x="1275" y="408" class="desc">统一输入 / 输出 / 超时</text>
+  <text x="1275" y="434" class="desc">可配置执行器，不绑定模型 SDK</text>
+
+  <rect x="1200" y="515" width="270" height="140" rx="12" class="green-node"/>
+  <circle cx="1240" cy="568" r="21" fill="#059669"/>
+  <path d="M1229 568L1238 577L1254 558" fill="none" stroke="#FFFFFF" stroke-width="4" stroke-linecap="round"/>
+  <text x="1275" y="557" class="title">DirectToolExecutor</text>
+  <text x="1275" y="587" class="desc">REST / glab / lark-cli</text>
+  <text x="1275" y="614" class="desc">确定性动作直接执行</text>
+  <text x="1275" y="639" class="note" fill="#047857">0 模型 Token</text>
+
+  <rect x="1200" y="715" width="270" height="155" rx="12" class="purple-node"/>
+  <circle cx="1240" cy="772" r="23" fill="#7C3AED"/>
+  <text x="1240" y="780" text-anchor="middle" style="font-size:17px;font-weight:700;fill:#FFFFFF">AI</text>
+  <text x="1275" y="756" class="title">AgentCliExecutor</text>
+  <text x="1275" y="786" class="desc">Codex CLI / 其他 Agent CLI</text>
+  <text x="1275" y="813" class="desc">JSONL 事件 / 会话续接</text>
+  <text x="1275" y="840" class="note" fill="#6D28D9">复杂任务才调用模型</text>
+
+  <rect x="1200" y="915" width="270" height="80" rx="12" class="node"/>
+  <text x="1335" y="949" text-anchor="middle" class="title">隔离工作区 / Sandbox</text>
+  <text x="1335" y="976" text-anchor="middle" class="desc">任务目录 · 最小文件权限 · 超时回收</text>
+
+  <path d="M1335 460V485H1335V515" class="green"/>
+  <path d="M1390 460V685H1335V715" class="purple"/>
+  <rect x="1350" y="475" width="98" height="28" rx="6" class="plate"/><text x="1399" y="494" text-anchor="middle" class="label">明确命令</text>
+  <rect x="1398" y="672" width="75" height="28" rx="6" class="plate"/><text x="1435" y="691" text-anchor="middle" class="label">复杂任务</text>
+  <path d="M1335 870V915" class="gray"/>
+
+  <!-- 工具与模型接入层 -->
+  <rect x="1535" y="260" width="360" height="775" rx="14" class="group"/>
+  <text x="1557" y="294" class="group-title">04 · 工具与模型接入层</text>
+
+  <rect x="1570" y="335" width="290" height="135" rx="12" class="green-node"/>
+  <circle cx="1610" cy="388" r="21" fill="#059669"/>
+  <path d="M1599 388L1608 397L1624 378" fill="none" stroke="#FFFFFF" stroke-width="4" stroke-linecap="round"/>
+  <text x="1645" y="377" class="title">受控工具网关</text>
+  <text x="1645" y="407" class="desc">工具白名单 / 参数校验</text>
+  <text x="1645" y="434" class="desc">读写隔离 / 幂等 / 结果截断</text>
+
+  <rect x="1570" y="535" width="290" height="135" rx="12" class="purple-node"/>
+  <circle cx="1610" cy="588" r="21" fill="#7C3AED"/>
+  <path d="M1599 588H1621M1610 577V599" stroke="#FFFFFF" stroke-width="3" stroke-linecap="round"/>
+  <text x="1645" y="577" class="title">MCP Client Manager</text>
+  <text x="1645" y="607" class="desc">按任务加载所需服务器</text>
+  <text x="1645" y="634" class="desc">GitLab / Confluence / 飞书</text>
+
+  <rect x="1570" y="735" width="290" height="135" rx="12" class="purple-node"/>
+  <circle cx="1610" cy="788" r="21" fill="#7C3AED"/>
+  <text x="1610" y="796" text-anchor="middle" style="font-size:16px;font-weight:700;fill:#FFFFFF">M</text>
+  <text x="1645" y="777" class="title">模型执行策略</text>
+  <text x="1645" y="807" class="desc">CLI / 模型映射配置</text>
+  <text x="1645" y="834" class="desc">低成本优先 · 失败回退 · 配额</text>
+
+  <rect x="1570" y="915" width="290" height="80" rx="12" class="node"/>
+  <text x="1715" y="949" text-anchor="middle" class="title">输出清洗与限长</text>
+  <text x="1715" y="976" text-anchor="middle" class="desc">工具结果摘要 · 敏感信息脱敏</text>
+
+  <path d="M1470 585H1570" class="green"/>
+  <path d="M1470 792H1535V603H1570" class="purple dash"/>
+  <path d="M1470 792H1570" class="purple dash"/>
+  <path d="M1715 535V470" class="purple dash"/>
+
+  <!-- 外部依赖 -->
+  <rect x="1975" y="145" width="370" height="1165" rx="16" class="zone"/>
+  <text x="2002" y="190" class="sys-title">外部依赖与企业系统</text>
+  <text x="2002" y="218" class="sys-sub">通过工具网关或 Agent CLI 访问</text>
+
+  <rect x="2015" y="300" width="290" height="112" rx="13" class="node"/>
+  <circle cx="2060" cy="345" r="22" fill="#FC6D26"/><text x="2060" y="353" text-anchor="middle" style="font-size:17px;font-weight:700;fill:#FFFFFF">G</text>
+  <text x="2097" y="339" class="title">GitLab</text><text x="2097" y="370" class="desc">REST / glab / MCP</text>
+
+  <rect x="2015" y="480" width="290" height="112" rx="13" class="node"/>
+  <circle cx="2060" cy="525" r="22" fill="#0052CC"/><text x="2060" y="533" text-anchor="middle" style="font-size:17px;font-weight:700;fill:#FFFFFF">C</text>
+  <text x="2097" y="519" class="title">Confluence</text><text x="2097" y="550" class="desc">REST / Atlassian MCP</text>
+
+  <rect x="2015" y="660" width="290" height="112" rx="13" class="node"/>
+  <circle cx="2060" cy="705" r="22" fill="#2563EB"/><text x="2060" y="713" text-anchor="middle" style="font-size:17px;font-weight:700;fill:#FFFFFF">飞</text>
+  <text x="2097" y="699" class="title">飞书 OpenAPI</text><text x="2097" y="730" class="desc">消息 / 文档 / 多维表格</text>
+
+  <rect x="2015" y="840" width="290" height="112" rx="13" class="node"/>
+  <circle cx="2060" cy="885" r="22" fill="#475569"/>
+  <rect x="2051" y="873" width="18" height="25" rx="2" fill="none" stroke="#FFFFFF" stroke-width="3"/>
+  <text x="2097" y="879" class="title">公司业务系统</text><text x="2097" y="910" class="desc">内网 API / 数据服务</text>
+
+  <rect x="2015" y="1040" width="290" height="120" rx="13" class="purple-node"/>
+  <circle cx="2060" cy="1090" r="23" fill="#7C3AED"/><text x="2060" y="1098" text-anchor="middle" style="font-size:17px;font-weight:700;fill:#FFFFFF">AI</text>
+  <text x="2097" y="1083" class="title">外部模型服务</text>
+  <text x="2097" y="1113" class="desc">OpenAI / 其他模型厂商</text>
+  <text x="2097" y="1138" class="desc">HTTPS 443</text>
+
+  <!-- 外部调用总线 -->
+  <path d="M1860 802H1915V1100H2015" class="purple dash"/>
+  <rect x="1880" y="1060" width="112" height="30" rx="6" class="plate"/><text x="1936" y="1080" text-anchor="middle" class="label">CLI 调用</text>
+
+  <path d="M1860 403H1945V356H2015" class="green"/>
+  <path d="M1945 356V536H2015" class="green"/>
+  <path d="M1945 536V716H2015" class="green"/>
+  <path d="M1945 716V896H2015" class="green"/>
+  <rect x="1870" y="455" width="137" height="30" rx="6" class="plate"/><text x="1938" y="475" text-anchor="middle" class="label">受控工具访问</text>
+
+  <!-- 平台内主链路 -->
+  <path d="M345 585H405V395H500" class="blue"/>
+  <rect x="360" y="535" width="115" height="30" rx="6" class="plate"/><text x="417" y="555" text-anchor="middle" class="label">WSS / HTTPS</text>
+  <path d="M730 572H780V392H830" class="blue"/>
+  <path d="M1100 572H1150V397H1200" class="blue"/>
+
+  <!-- 执行结果回流，独立底部通道 -->
+  <path d="M1200 600H1145V1058H615V950" class="blue"/>
+  <path d="M1200 792H1120V1078H635V950" class="blue"/>
+  <rect x="880" y="1042" width="142" height="30" rx="6" class="plate"/><text x="951" y="1062" text-anchor="middle" class="label">执行结果回流</text>
+  <path d="M500 882H445V630H345" class="blue"/>
+  <rect x="360" y="790" width="115" height="30" rx="6" class="plate"/><text x="417" y="810" text-anchor="middle" class="label">统一回复</text>
+
+  <!-- 数据与平台基础设施 -->
+  <rect x="465" y="1135" width="1430" height="130" rx="14" fill="#E8EEF7" stroke="#CBD5E1" stroke-width="1.5"/>
+  <text x="488" y="1171" class="group-title">05 · 数据与平台基础设施</text>
+  <g>
+    <rect x="500" y="1190" width="220" height="50" rx="10" fill="#FFFFFF" stroke="#CBD5E1"/><text x="610" y="1221" text-anchor="middle" class="title">Redis / BullMQ</text>
+    <rect x="755" y="1190" width="240" height="50" rx="10" fill="#FFFFFF" stroke="#CBD5E1"/><text x="875" y="1221" text-anchor="middle" class="title">PostgreSQL / SQLite</text>
+    <rect x="1030" y="1190" width="220" height="50" rx="10" fill="#FFFFFF" stroke="#CBD5E1"/><text x="1140" y="1221" text-anchor="middle" class="title">任务工作区 / 文件</text>
+    <rect x="1285" y="1190" width="250" height="50" rx="10" fill="#FFFFFF" stroke="#CBD5E1"/><text x="1410" y="1221" text-anchor="middle" class="title">凭据与配置管理</text>
+    <rect x="1570" y="1190" width="285" height="50" rx="10" fill="#FFFFFF" stroke="#CBD5E1"/><text x="1712" y="1221" text-anchor="middle" class="title">日志 / 指标 / Trace / Token</text>
+  </g>
+
+  <!-- 横切治理能力 -->
+  <rect x="55" y="1330" width="2290" height="46" rx="10" fill="#DDE8F8"/>
+  <text x="80" y="1359" class="label">横切治理：身份认证 · 租户隔离 · 最小权限 · Prompt 注入防护 · 写操作审批 · 数据脱敏 · 审计追踪 · 每用户/群组成本配额</text>
+  <text x="2320" y="1359" text-anchor="end" class="label">Architecture V1.0</text>
+</svg>
