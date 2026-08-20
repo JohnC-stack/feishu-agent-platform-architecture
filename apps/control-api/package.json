@@ -9,11 +9,15 @@
     "start": "node --env-file-if-exists=../../.env dist/index.js",
     "verify:queue": "tsx --env-file-if-exists=../../.env src/verify-task-queue.ts",
     "verify:recovery": "tsx --env-file-if-exists=../../.env src/verify-worker-recovery.ts",
-    "verify:coordinator": "tsx --env-file-if-exists=../../.env src/verify-task-coordinator.ts"
+    "verify:coordinator": "tsx --env-file-if-exists=../../.env src/verify-task-coordinator.ts",
+    "verify:p3": "tsx --env-file-if-exists=../../.env src/verify-executor-pipeline.ts",
+    "verify:agent-pipeline": "tsx --env-file-if-exists=../../.env src/verify-agent-pipeline.ts",
+    "verify:api-pipeline": "tsx --env-file-if-exists=../../.env src/verify-api-pipeline.ts"
   },
   "dependencies": {
     "@feishu-agent/contracts": "workspace:*",
     "@feishu-agent/database": "workspace:*",
+    "@feishu-agent/executors": "workspace:*",
     "@feishu-agent/observability": "workspace:*",
     "@feishu-agent/policy": "workspace:*",
     "bullmq": "6.1.2",

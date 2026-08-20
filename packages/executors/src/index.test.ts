@@ -27,6 +27,8 @@ describe('NoopExecutor', () => {
 
     for await (const event of executor.execute(task, {
       signal: new AbortController().signal,
+      runId: '17fd270d-63e4-49b0-8289-646e0c631375',
+      attempt: 1,
       approvedToolNames: new Set(),
     })) {
       events.push(event);
@@ -34,5 +36,6 @@ describe('NoopExecutor', () => {
 
     expect(events.map(({ kind }) => kind)).toEqual(['started', 'completed']);
     expect(events.map(({ sequence }) => sequence)).toEqual([0, 1]);
+    expect(events.every(({ correlationId }) => correlationId === task.correlationId)).toBe(true);
   });
 });

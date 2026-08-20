@@ -1,6 +1,7 @@
 .DS_Store
 *.log
 .env
+.runtime/
 .env.*
 !.env.example
 node_modules/

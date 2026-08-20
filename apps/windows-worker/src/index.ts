@@ -1,8 +1,11 @@
-import { startService } from '@feishu-agent/observability';
+import { createWindowsWorker, windowsWorkerOptions } from './app.js';
 
-import { windowsWorkerOptions } from './app.js';
-
-startService(windowsWorkerOptions).catch((error: unknown) => {
-  console.error(error);
-  process.exitCode = 1;
-});
+createWindowsWorker()
+  .listen({ host: windowsWorkerOptions.host, port: windowsWorkerOptions.port })
+  .then((address) => {
+    console.log(`windows-worker listening at ${address}`);
+  })
+  .catch((error: unknown) => {
+    console.error(error);
+    process.exitCode = 1;
+  });

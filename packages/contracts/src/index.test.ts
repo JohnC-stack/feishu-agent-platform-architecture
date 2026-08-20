@@ -42,6 +42,21 @@ describe('ExecutorEventSchema', () => {
 
     expect(result.success).toBe(false);
   });
+
+  it('requires executor run audit fields', () => {
+    expect(
+      ExecutorEventSchema.parse({
+        taskId,
+        runId: '17fd270d-63e4-49b0-8289-646e0c631375',
+        executor: 'direct_tool',
+        correlationId: 'trace-1',
+        attempt: 1,
+        sequence: 0,
+        kind: 'started',
+        createdAt: '2026-08-20T00:00:00.000Z',
+      }),
+    ).toMatchObject({ executor: 'direct_tool', attempt: 1 });
+  });
 });
 
 describe('P2 scheduling contracts', () => {

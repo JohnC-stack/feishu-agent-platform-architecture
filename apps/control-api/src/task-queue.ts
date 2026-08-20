@@ -243,7 +243,8 @@ export class TaskQueueRuntime {
     } catch (error: unknown) {
       const attempts = job.opts.attempts ?? 1;
       const cancelled = error instanceof TaskCancelledError;
-      const isFinalAttempt = cancelled || job.attemptsMade + 1 >= attempts;
+      const nonRetryable = error instanceof TaskNonRetryableError;
+      const isFinalAttempt = cancelled || nonRetryable || job.attemptsMade + 1 >= attempts;
       await hooks.onAttemptFailed?.(job.data, context, error, isFinalAttempt);
       if (isFinalAttempt && !cancelled) {
         const failedReason = error instanceof Error ? error.message : String(error);
@@ -258,7 +259,7 @@ export class TaskQueueRuntime {
           { jobId },
         );
       }
-      if (cancelled) {
+      if (cancelled || nonRetryable) {
         throw new UnrecoverableError(error.message);
       }
       throw error;
@@ -311,6 +312,13 @@ export class TaskCancelledError extends Error {
   public constructor(taskId: string) {
     super(`Task execution was cancelled: ${taskId}.`);
     this.name = 'TaskCancelledError';
+  }
+}
+
+export class TaskNonRetryableError extends Error {
+  public constructor(message: string) {
+    super(message);
+    this.name = 'TaskNonRetryableError';
   }
 }
 

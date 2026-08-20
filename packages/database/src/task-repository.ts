@@ -1,11 +1,16 @@
 import { randomUUID } from 'node:crypto';
 
 import {
+  ExecutorEventSchema,
   RouteRuleSchema,
+  TaskRequestSchema,
   type ConversationMessage,
   type ConversationRole,
   type RouteDecision,
   type RouteRule,
+  type ExecutorEvent,
+  type ExecutorExecutionResult,
+  type ExecutorKind,
   type TaskRequest,
   type TaskStatus,
 } from '@feishu-agent/contracts';
@@ -61,6 +66,24 @@ interface TaskEventRow {
   created_at: Date;
 }
 
+interface TaskExecutionRow {
+  id: string;
+  source_event_id: string;
+  correlation_id: string;
+  reply_target_id: string;
+  executor: ExecutorKind;
+  risk: TaskRequest['riskLevel'];
+  input: {
+    text: string;
+    command?: string;
+    attachments?: TaskRequest['input']['attachments'];
+    metadata?: Record<string, unknown>;
+  };
+  created_at: Date;
+  chat_id: string;
+  user_id: string;
+}
+
 export interface ConversationIdentity {
   channel: 'feishu';
   chatId: string;
@@ -107,6 +130,20 @@ export interface TaskAttemptRecord {
   outcome?: 'succeeded' | 'failed' | 'cancelled' | 'expired' | 'stalled';
   errorCode?: string;
   errorMessage?: string;
+}
+
+export interface ExecutorRunRecord {
+  id: string;
+  taskId: string;
+  attempt: number;
+  requestedExecutor: ExecutorKind;
+  executor?: ExecutorKind;
+  status: 'running' | 'succeeded' | 'failed' | 'cancelled' | 'expired';
+  workspacePath?: string;
+  sessionId?: string;
+  output?: string;
+  errorCode?: string;
+  eventCount: number;
 }
 
 export class TaskRepository {
@@ -401,6 +438,278 @@ export class TaskRepository {
       WHERE id = ${taskId}
     `;
     return rows[0] ? mapTask(rows[0]) : undefined;
+  }
+
+  public async getTaskExecutionRequest(taskId: string): Promise<TaskRequest | undefined> {
+    const rows = await this.sql<TaskExecutionRow[]>`
+      SELECT
+        tasks.id,
+        tasks.source_event_id,
+        tasks.correlation_id,
+        tasks.reply_target_id,
+        tasks.executor,
+        tasks.risk,
+        tasks.input,
+        tasks.created_at,
+        conversations.chat_id,
+        conversations.user_id
+      FROM tasks
+      INNER JOIN conversations ON conversations.id = tasks.conversation_id
+      WHERE tasks.id = ${taskId}
+    `;
+    const row = rows[0];
+    if (!row) {
+      return undefined;
+    }
+    const metadata = row.input.metadata ?? {};
+    return TaskRequestSchema.parse({
+      id: row.id,
+      source: {
+        channel: 'feishu',
+        eventId: row.source_event_id,
+        chatId: row.chat_id,
+        userId: row.user_id,
+        replyTargetId: row.reply_target_id,
+      },
+      input: {
+        text: row.input.text,
+        ...(row.input.command ? { command: row.input.command } : {}),
+        attachments: row.input.attachments ?? [],
+      },
+      requestedExecutor: row.executor,
+      riskLevel: row.risk,
+      correlationId: row.correlation_id,
+      createdAt: row.created_at.toISOString(),
+      metadata,
+    });
+  }
+
+  public async beginExecutorRun(input: {
+    runId: string;
+    taskId: string;
+    attempt: number;
+    requestedExecutor: ExecutorKind;
+    workspacePath?: string;
+    sandboxKind?: 'local_workspace' | 'hyperv';
+  }): Promise<{ runId: string; created: boolean }> {
+    if (!Number.isInteger(input.attempt) || input.attempt < 1) {
+      throw new Error('Executor run attempt must be a positive integer.');
+    }
+    return this.sql.begin(async (transaction) => {
+      const inserted = await transaction<{ id: string }[]>`
+        INSERT INTO executor_runs (
+          id,
+          task_id,
+          attempt,
+          requested_executor,
+          status,
+          workspace_path
+        ) VALUES (
+          ${input.runId},
+          ${input.taskId},
+          ${input.attempt},
+          ${input.requestedExecutor},
+          'running',
+          ${input.workspacePath ?? null}
+        )
+        ON CONFLICT (task_id, attempt) DO NOTHING
+        RETURNING id
+      `;
+      const insertedId = inserted[0]?.id;
+      if (insertedId) {
+        if (input.workspacePath) {
+          await transaction`
+            INSERT INTO workspace_bindings (
+              run_id,
+              task_id,
+              workspace_path,
+              sandbox_kind
+            ) VALUES (
+              ${insertedId},
+              ${input.taskId},
+              ${input.workspacePath},
+              ${input.sandboxKind ?? 'local_workspace'}
+            )
+          `;
+        }
+        return { runId: insertedId, created: true };
+      }
+      const existing = await transaction<{ id: string }[]>`
+        SELECT id
+        FROM executor_runs
+        WHERE task_id = ${input.taskId}
+          AND attempt = ${input.attempt}
+      `;
+      const existingId = existing[0]?.id;
+      if (!existingId) {
+        throw new Error(`Executor run lookup failed: ${input.taskId}/${input.attempt}`);
+      }
+      return { runId: existingId, created: false };
+    });
+  }
+
+  public async appendExecutorEvents(events: readonly ExecutorEvent[]): Promise<number> {
+    if (events.length === 0) {
+      return 0;
+    }
+    const validated = events.map((event) => ExecutorEventSchema.parse(event));
+    return this.sql.begin(async (transaction) => {
+      let inserted = 0;
+      for (const event of validated) {
+        const requiredValues = {
+          runId: event.runId,
+          taskId: event.taskId,
+          executor: event.executor,
+          correlationId: event.correlationId,
+          attempt: event.attempt,
+          sequence: event.sequence,
+          kind: event.kind,
+          createdAt: event.createdAt,
+        };
+        const missing = Object.entries(requiredValues).find(([, value]) => value === undefined);
+        if (missing) {
+          throw new Error(`Executor event is missing required field: ${missing[0]}`);
+        }
+        const rows = await transaction<{ id: number }[]>`
+          INSERT INTO executor_events (
+            run_id,
+            task_id,
+            executor,
+            correlation_id,
+            attempt,
+            sequence,
+            kind,
+            message,
+            payload,
+            created_at
+          ) VALUES (
+            ${event.runId},
+            ${event.taskId},
+            ${event.executor},
+            ${event.correlationId},
+            ${event.attempt},
+            ${event.sequence},
+            ${event.kind},
+            ${event.message ?? null},
+            ${transaction.json(toJsonValue(event.payload))},
+            ${event.createdAt}
+          )
+          ON CONFLICT (run_id, sequence) DO NOTHING
+          RETURNING id
+        `;
+        inserted += rows.length;
+      }
+      return inserted;
+    });
+  }
+
+  public async finishExecutorRun(result: ExecutorExecutionResult): Promise<void> {
+    const rows = await this.sql<{ id: string }[]>`
+      UPDATE executor_runs
+      SET
+        executor = ${result.executor},
+        status = ${result.status},
+        session_id = ${result.sessionId ?? null},
+        output = ${result.output ?? null},
+        error_category = ${result.failure?.category ?? null},
+        error_code = ${result.failure?.code ?? null},
+        error_message = ${result.failure?.message ?? null},
+        error_retryable = ${result.failure?.retryable ?? null},
+        finished_at = now()
+      WHERE id = ${result.runId}
+        AND status = 'running'
+      RETURNING id
+    `;
+    if (rows.length !== 1) {
+      throw new Error(`Active executor run not found: ${result.runId}`);
+    }
+    await this.sql`
+      UPDATE workspace_bindings
+      SET released_at = now()
+      WHERE run_id = ${result.runId}
+        AND released_at IS NULL
+    `;
+  }
+
+  public async failExecutorRun(input: {
+    runId: string;
+    code: string;
+    message: string;
+    retryable: boolean;
+  }): Promise<void> {
+    const rows = await this.sql<{ id: string }[]>`
+      UPDATE executor_runs
+      SET
+        status = 'failed',
+        error_category = 'dependency',
+        error_code = ${input.code},
+        error_message = ${input.message.slice(0, 2_000)},
+        error_retryable = ${input.retryable},
+        finished_at = now()
+      WHERE id = ${input.runId}
+        AND status = 'running'
+      RETURNING id
+    `;
+    if (rows.length !== 1) {
+      throw new Error(`Active executor run not found: ${input.runId}`);
+    }
+    await this.sql`
+      UPDATE workspace_bindings
+      SET released_at = now()
+      WHERE run_id = ${input.runId}
+        AND released_at IS NULL
+    `;
+  }
+
+  public async getExecutorRun(runId: string): Promise<ExecutorRunRecord | undefined> {
+    const rows = await this.sql<
+      {
+        id: string;
+        task_id: string;
+        attempt: number;
+        requested_executor: ExecutorKind;
+        executor: ExecutorKind | null;
+        status: ExecutorRunRecord['status'];
+        workspace_path: string | null;
+        session_id: string | null;
+        output: string | null;
+        error_code: string | null;
+        event_count: number;
+      }[]
+    >`
+      SELECT
+        runs.id,
+        runs.task_id,
+        runs.attempt,
+        runs.requested_executor,
+        runs.executor,
+        runs.status,
+        runs.workspace_path,
+        runs.session_id,
+        runs.output,
+        runs.error_code,
+        COUNT(events.id)::integer AS event_count
+      FROM executor_runs runs
+      LEFT JOIN executor_events events ON events.run_id = runs.id
+      WHERE runs.id = ${runId}
+      GROUP BY runs.id
+    `;
+    const row = rows[0];
+    return row
+      ? {
+          id: row.id,
+          taskId: row.task_id,
+          attempt: row.attempt,
+          requestedExecutor: row.requested_executor,
+          ...(row.executor ? { executor: row.executor } : {}),
+          status: row.status,
+          ...(row.workspace_path ? { workspacePath: row.workspace_path } : {}),
+          ...(row.session_id ? { sessionId: row.session_id } : {}),
+          ...(row.output ? { output: row.output } : {}),
+          ...(row.error_code ? { errorCode: row.error_code } : {}),
+          eventCount: row.event_count,
+        }
+      : undefined;
   }
 
   public async requestTaskCancellation(taskId: string): Promise<boolean> {

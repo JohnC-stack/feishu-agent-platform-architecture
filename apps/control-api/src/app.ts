@@ -20,8 +20,8 @@ export const controlApiOptions: ServiceOptions = {
   registerRoutes(app) {
     app.get('/', () => ({
       service: 'control-api',
-      phase: 'P2',
-      message: 'Control plane scheduling API is running.',
+      phase: 'P3',
+      message: 'Control plane scheduling and executor dispatch API is running.',
     }));
   },
 };

@@ -27,6 +27,30 @@ export const executorKinds = ['direct_tool', 'api_agent', 'agent_cli'] as const;
 export const ExecutorKindSchema = z.enum(executorKinds);
 export type ExecutorKind = z.infer<typeof ExecutorKindSchema>;
 
+export const executorErrorCategories = [
+  'cancelled',
+  'timeout',
+  'validation',
+  'unauthorized',
+  'dependency',
+  'rate_limited',
+  'tool',
+  'sandbox',
+  'internal',
+] as const;
+
+export const ExecutorErrorCategorySchema = z.enum(executorErrorCategories);
+export type ExecutorErrorCategory = z.infer<typeof ExecutorErrorCategorySchema>;
+
+export const ExecutorFailureSchema = z.object({
+  category: ExecutorErrorCategorySchema,
+  code: z.string().min(1).max(200),
+  message: z.string().min(1).max(2_000),
+  retryable: z.boolean(),
+});
+
+export type ExecutorFailure = z.infer<typeof ExecutorFailureSchema>;
+
 export const riskLevels = ['low', 'medium', 'high', 'critical'] as const;
 export const RiskLevelSchema = z.enum(riskLevels);
 export type RiskLevel = z.infer<typeof RiskLevelSchema>;
@@ -138,9 +162,14 @@ export const executorEventKinds = [
 ] as const;
 
 export const ExecutorEventKindSchema = z.enum(executorEventKinds);
+export type ExecutorEventKind = z.infer<typeof ExecutorEventKindSchema>;
 
 export const ExecutorEventSchema = z.object({
   taskId: z.string().uuid(),
+  runId: z.string().uuid(),
+  executor: ExecutorKindSchema,
+  correlationId: z.string().min(1),
+  attempt: z.number().int().positive(),
   sequence: z.number().int().nonnegative(),
   kind: ExecutorEventKindSchema,
   createdAt: z.string().datetime(),
@@ -149,6 +178,31 @@ export const ExecutorEventSchema = z.object({
 });
 
 export type ExecutorEvent = z.infer<typeof ExecutorEventSchema>;
+
+export const ExecutorExecutionRequestSchema = z.object({
+  task: TaskRequestSchema,
+  executor: ExecutorKindSchema,
+  runId: z.string().uuid(),
+  attempt: z.number().int().positive(),
+  approvedToolNames: z.array(z.string().min(1).max(200)).max(100).default([]),
+  workspacePath: z.string().min(1).max(1_000).optional(),
+  previousSessionId: z.string().min(1).max(200).optional(),
+});
+
+export type ExecutorExecutionRequest = z.infer<typeof ExecutorExecutionRequestSchema>;
+
+export const ExecutorExecutionResultSchema = z.object({
+  taskId: z.string().uuid(),
+  runId: z.string().uuid(),
+  executor: ExecutorKindSchema,
+  status: z.enum(['succeeded', 'failed', 'cancelled', 'expired']),
+  events: z.array(ExecutorEventSchema),
+  output: z.string().max(100_000).optional(),
+  sessionId: z.string().min(1).max(200).optional(),
+  failure: ExecutorFailureSchema.optional(),
+});
+
+export type ExecutorExecutionResult = z.infer<typeof ExecutorExecutionResultSchema>;
 
 export const HealthResponseSchema = z.object({
   service: z.string().min(1),

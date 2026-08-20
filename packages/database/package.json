@@ -13,7 +13,8 @@
     "build": "tsup src/index.ts src/migrate.ts --format esm --dts --clean",
     "migrate": "tsx --env-file-if-exists=../../.env src/migrate.ts",
     "verify:p2": "tsx --env-file-if-exists=../../.env src/verify-p2-persistence.ts",
-    "verify:concurrency": "tsx --env-file-if-exists=../../.env src/verify-p2-concurrency.ts"
+    "verify:concurrency": "tsx --env-file-if-exists=../../.env src/verify-p2-concurrency.ts",
+    "verify:p3": "tsx --env-file-if-exists=../../.env src/verify-p3-persistence.ts"
   },
   "dependencies": {
     "@feishu-agent/contracts": "workspace:*",

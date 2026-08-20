@@ -224,8 +224,9 @@ export function createTaskCoordinator(
   repository: TaskRepository,
   queue: TaskQueueRuntime,
   rules: RouteRule[],
+  fallbackExecutor: RouteDecision['executor'] = 'api_agent',
 ): TaskCoordinator {
-  return new TaskCoordinator(repository, queue, rules);
+  return new TaskCoordinator(repository, queue, rules, fallbackExecutor);
 }
 
 function toJobData(task: PersistedTask): TaskJobData {

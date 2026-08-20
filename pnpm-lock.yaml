@@ -74,6 +74,9 @@ importers:
       '@feishu-agent/database':
         specifier: workspace:*
         version: link:../../packages/database
+      '@feishu-agent/executors':
+        specifier: workspace:*
+        version: link:../../packages/executors
       '@feishu-agent/observability':
         specifier: workspace:*
         version: link:../../packages/observability
@@ -117,6 +120,9 @@ importers:
 
   apps/windows-worker:
     dependencies:
+      '@feishu-agent/contracts':
+        specifier: workspace:*
+        version: link:../../packages/contracts
       '@feishu-agent/executors':
         specifier: workspace:*
         version: link:../../packages/executors
@@ -126,6 +132,9 @@ importers:
       fastify:
         specifier: ^5.6.2
         version: 5.12.1
+      zod:
+        specifier: 4.1.12
+        version: 4.1.12
 
   packages/contracts:
     dependencies:
@@ -150,6 +159,12 @@ importers:
       '@feishu-agent/contracts':
         specifier: workspace:*
         version: link:../contracts
+      openai:
+        specifier: ^7.5.0
+        version: 7.5.0(ws@8.21.3)(zod@4.1.12)
+      zod:
+        specifier: 4.1.12
+        version: 4.1.12
 
   packages/integrations: {}
 
@@ -1658,6 +1673,27 @@ packages:
     resolution: {integrity: sha512-0eJJY6hXLGf1udHwfNftBqH+g73EU4B504nZeKpz1sYRKafAghwxEJunB2O7rDZkL4PGfsMVnTXZ2EjibbqcsA==}
     engines: {node: '>=14.0.0'}
 
+  openai@7.5.0:
+    resolution: {integrity: sha512-ZbDBz8FSB8Mv8fFYIUvzTFMdV5vl93/octp1MdtK2lfYepSpfv/ewmeugpKz/cwGtFSx+YuUM4NwpZ2P55YiPA==}
+    engines: {node: '>=22.0.0'}
+    peerDependencies:
+      '@aws-sdk/credential-provider-node': '>=3.972.0 <4'
+      '@smithy/hash-node': '>=4.3.0 <5'
+      '@smithy/signature-v4': '>=5.4.0 <6'
+      ws: ^8.18.0
+      zod: ^3.25 || ^4.0
+    peerDependenciesMeta:
+      '@aws-sdk/credential-provider-node':
+        optional: true
+      '@smithy/hash-node':
+        optional: true
+      '@smithy/signature-v4':
+        optional: true
+      ws:
+        optional: true
+      zod:
+        optional: true
+
   optionator@0.9.4:
     resolution: {integrity: sha512-6IpQ7mKUxRcZNLIObR0hz7lxsapSSIYNZJwXPGeF0mTVqGKFIXj1DQcMoT22S3ROcLyY/rz0PWaWZ9ayWmad9g==}
     engines: {node: '>= 0.8.0'}
@@ -2142,6 +2178,9 @@ packages:
     engines: {node: '>=18.0.0'}
     peerDependencies:
       zod: ^3.25.0 || ^4.0.0
+
+  zod@4.1.12:
+    resolution: {integrity: sha512-JInaHOamG8pt5+Ey8kGmdcAcg3OL9reK8ltczgHTAwNhMys/6ThXHityHxVV2p3fkw/c+MAvBHFVYHFZDmjMCQ==}
 
   zod@4.4.3:
     resolution: {integrity: sha512-ytENFjIJFl2UwYglde2jchW2Hwm4GJFLDiSXWdTrJQBIN9Fcyp7n4DhxJEiWNAJMV1/BqWfW/kkg71UDcHJyTQ==}
@@ -3123,8 +3162,8 @@ snapshots:
       '@babel/parser': 7.29.8
       eslint: 9.39.5(supports-color@7.2.0)
       hermes-parser: 0.25.1
-      zod: 4.4.3
-      zod-validation-error: 4.0.2(zod@4.4.3)
+      zod: 4.1.12
+      zod-validation-error: 4.0.2(zod@4.1.12)
     transitivePeerDependencies:
       - supports-color
 
@@ -3530,6 +3569,11 @@ snapshots:
   obug@2.1.4: {}
 
   on-exit-leak-free@2.1.2: {}
+
+  openai@7.5.0(ws@8.21.3)(zod@4.1.12):
+    optionalDependencies:
+      ws: 8.21.3
+      zod: 4.1.12
 
   optionator@0.9.4:
     dependencies:
@@ -3946,8 +3990,10 @@ snapshots:
 
   yocto-queue@0.1.0: {}
 
-  zod-validation-error@4.0.2(zod@4.4.3):
+  zod-validation-error@4.0.2(zod@4.1.12):
     dependencies:
-      zod: 4.4.3
+      zod: 4.1.12
+
+  zod@4.1.12: {}
 
   zod@4.4.3: {}

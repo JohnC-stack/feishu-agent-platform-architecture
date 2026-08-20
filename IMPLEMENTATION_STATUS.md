@@ -1,8 +1,8 @@
 # 飞书 Agent 平台实施状态
 
 - 更新日期：2026-08-21
-- 当前阶段：P2 调度与数据（环境与持久化基础）
-- 总体状态：P0、P1 已关闭；P2 已开始，尚未完成
+- 当前阶段：P3 三类执行器
+- 总体状态：P0、P1、P2 已关闭；P3 本地实现和修订后的活动通道验收已完成，API/ReAct 按决策关闭，尚待发布与远端门禁
 - 工作分支：`docs/hybrid-architecture-plan`
 
 ## P0 任务状态
@@ -81,4 +81,33 @@ P2 环境预检已确认 Node.js 24.19.0、pnpm 11.19.0、Docker Server 29.7.2�
 
 ## P2 阶段出口
 
-P2 本地实现、自动化测试、真实 PostgreSQL/Redis、并发、重试、取消、死信、崩溃恢复和运行态门禁已通过。当前等待代码发布与远端 CI/Security；在两项远端门禁成功前，P2 保持未关闭且不进入 P3。
+P2 本地实现、自动化测试、真实 PostgreSQL/Redis、并发、重试、取消、死信、崩溃恢复和运行态门禁已通过。P2 提交为 `d7a404d`；远端 [CI](https://github.com/JohnC-stack/feishu-agent-platform-architecture/actions/runs/32383751564) 与 [Security](https://github.com/JohnC-stack/feishu-agent-platform-architecture/actions/runs/32383751487) 均为 `success`。P2 于 2026-08-21 关闭，关闭后才进入 P3。
+
+## P3 任务状态
+
+| 任务                                | 状态        | 当前证据                                                                                                                                     |
+| ----------------------------------- | ----------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
+| `P3-01` Executor Adapter            | 本地已完成  | 统一 run、correlation、attempt、序列事件；取消、超时、错误分类和输出协议通过单元测试                                                         |
+| `P3-02` DirectTool 与工具网关       | 本地已完成  | 工具注册、Zod 参数校验、任务级白名单、结果截断和 `/ping`/`/health` 零模型路径通过真实 BullMQ 端到端验证                                      |
+| `P3-03` Responses API/ReAct         | 已实现/关闭 | OpenAI SDK 7.5.0、Responses 工具循环、API 安全工具别名、最小暴露和冲突拒绝已通过测试；`API_AGENT_ENABLED=false` 时不参与活动路由和 readiness |
+| `P3-04` Agent CLI                   | 本地已完成  | 独立 Codex CLI 0.148.0、官方 JSONL、session ID、`resume`、workspace-write 沙箱和真实 BullMQ/数据库链路已通过                                 |
+| `P3-05` 工作区、ACL、资源和沙箱接口 | 本地已完成  | 路径逃逸阻断、Windows 用户 ACL、任务目录清理、超时/事件/输出限制已验证；高风险任务在 Hyper-V 未配置时强制拒绝                                |
+| `P3-06` 回退与熔断                  | 本地已完成  | 仅对可重试错误回退、无授权工作区时禁止 Agent CLI 回退、阈值熔断和冷却探测通过测试                                                            |
+
+## P3 本地验收记录
+
+- 环境：Node.js 24.19.0、pnpm 11.19.0、Docker 29.7.2、Codex CLI 0.148.0；独立 CLI 已确认使用 ChatGPT 登录，不读取或输出凭据。
+- `0003_p3_executor_runtime.sql` 已应用并幂等复跑，新增 executor run、统一 executor event 和 workspace binding 持久化。
+- P3 持久化验收：run 创建、事件持久化、审计字段、输出和完整任务重建全部为 `true`。
+- Direct 完整链路：Control API 提交、BullMQ、Windows Worker、零模型工具调用、PostgreSQL 终态和事件持久化全部为 `true`。
+- Agent CLI 真实验收：JSONL 解析、session 捕获、会话续接、工作区绑定、前后工作区不变和完成状态全部为 `true`；Windows Worker 可在当前进程缺少 `PNPM_HOME` 时从本机 pnpm 安装位置解析真实 Node 入口，避免直接启动 `codex.cmd` 的 `spawn EPERM`。
+- Agent CLI 完整链路：路由、输出/session/workspace 持久化、工作区释放、事件落库和工作区不变全部为 `true`。
+- Responses API 适配器已完成模拟工具闭环、工具安全别名和冲突拒绝验证；按 2026-08-21 决策，OpenAI API 通道暂时关闭，真实计费 API 不再属于当前 P3 活动通道验收。
+- API 关闭门禁：默认关闭；活动执行器列表和 readiness 不包含 `api_agent`；未匹配任务改走 Agent CLI；显式 API 执行请求以不可重试的 `API_AGENT_DISABLED` 失败，不静默回退。
+- 故障与安全：活动子进程取消、整体超时、输出/事件上限、未授权工具、工作区逃逸、熔断和高风险 Hyper-V 强制门禁均通过。
+- `pnpm check` 成功：格式、ESLint、严格类型检查、23 个测试文件、61 个测试和全部生产构建均通过。
+- `pnpm audit --prod --audit-level high` 返回 `No known vulnerabilities found`。
+
+## P3 阶段出口
+
+P3 代码、DirectTool、Agent CLI、数据库、队列、工作区、故障门禁以及 API 关闭门禁已通过本地验收。OpenAI API/ReAct 适配器保留但由 `API_AGENT_ENABLED=false` 强制关闭，不属于当前活动通道出口条件。本阶段代码尚未发布并通过远端 CI/Security；完成发布与远端门禁前，P3 保持未关闭，不进入 P4。

@@ -7,6 +7,7 @@
 - pnpm 10–11。
 - Docker Engine 或 Docker Desktop，仅用于本地开发 PostgreSQL 和 Redis。
 - Git。
+- P3 Agent CLI 任务需要独立安装 Codex CLI，并完成本机安全登录。
 
 生产 Windows Server 不使用 Docker Desktop；生产控制面部署在 Hyper-V Linux VM 中。
 
@@ -40,6 +41,8 @@ node --version
 pnpm --version
 docker version
 docker compose version
+codex --version
+codex login status
 ```
 
 任何命令失败时先修复环境，不得跳过并继续后续阶段。
@@ -85,6 +88,8 @@ pnpm dev:infra:down
 - `.env` 只用于本地开发，已被 Git 忽略。
 - 仓库只提交无敏感信息的 `.env.example`。
 - P1 飞书真实联调时，应用密钥由管理员本机录入，不进入聊天、Issue、提交或日志。
+- API/ReAct 当前通过 `API_AGENT_ENABLED=false` 关闭。未来重新评审启用时，才在未跟踪的 `.env` 中填写 `OPENAI_API_KEY`；聊天、日志和 Git 中不得出现密钥。
+- `AGENT_AUTHORIZED_WORKSPACE_ROOTS` 使用分号分隔允许 Agent CLI 访问的根目录；请求路径仍会由 Worker 再次做真实路径和越界校验。
 - 健康接口和日志不得返回连接字符串、令牌、Cookie 或密码。
 
 ## 5. P0 验收
@@ -95,3 +100,20 @@ pnpm check
 ```
 
 随后启动三个服务，确认六个动态健康接口返回 HTTP 200；启动管理台并确认两个静态健康路径可访问。Docker 不可用时，代码检查仍可完成，但数据库迁移与基础设施启动不能标记为已验证。
+
+## 6. P3 执行器验收
+
+```powershell
+pnpm db:migrate
+pnpm --filter @feishu-agent/database run verify:p3
+pnpm --filter @feishu-agent/control-api run verify:p3
+pnpm --filter @feishu-agent/windows-worker run verify:agent-cli
+pnpm --filter @feishu-agent/control-api run verify:agent-pipeline
+
+# 仅在重新启用 API 通道、设置 API_AGENT_ENABLED=true 且密钥已安全写入本机 .env 后执行：
+pnpm --filter @feishu-agent/control-api run verify:api-pipeline
+```
+
+前三条真实验证分别覆盖 PostgreSQL 执行审计、DirectTool 完整调度链路和 Codex CLI JSONL/续接；`verify:agent-pipeline` 覆盖 Agent CLI 的 BullMQ、Windows Worker、工作区、数据库与清理完整链路。`API_AGENT_ENABLED=false` 时，Worker 不将 `api_agent` 列为活动执行器，也不把它加入 readiness；显式 API 请求会强制失败且不会静默回退。
+
+未来只有在正式决定恢复该通道后，才执行真实计费 API 验收；保持关闭时无需调用外部 API。

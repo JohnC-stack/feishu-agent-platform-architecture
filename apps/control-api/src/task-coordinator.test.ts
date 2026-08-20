@@ -39,7 +39,7 @@ function persistedTask(status: PersistedTask['status'] = 'queued'): PersistedTas
   };
 }
 
-function createHarness() {
+function createHarness(fallbackExecutor: 'api_agent' | 'agent_cli' = 'api_agent') {
   const enqueued: string[] = [];
   const transitioned: string[] = [];
   const repository: TaskRepositoryPort = {
@@ -63,16 +63,21 @@ function createHarness() {
     cancel: () => Promise.resolve('cancelled'),
     startWorker: () => Promise.resolve(),
   };
-  const coordinator = new TaskCoordinator(repository, queue, [
-    {
-      id: 'health-direct',
-      version: 2,
-      priority: 100,
-      enabled: true,
-      condition: { commands: ['/health'] },
-      executor: 'direct_tool',
-    },
-  ]);
+  const coordinator = new TaskCoordinator(
+    repository,
+    queue,
+    [
+      {
+        id: 'health-direct',
+        version: 2,
+        priority: 100,
+        enabled: true,
+        condition: { commands: ['/health'] },
+        executor: 'direct_tool',
+      },
+    ],
+    fallbackExecutor,
+  );
   return { coordinator, enqueued, transitioned };
 }
 
@@ -88,6 +93,16 @@ describe('TaskCoordinator', () => {
       route: { executor: 'direct_tool', ruleId: 'health-direct', ruleVersion: 2 },
     });
     expect(enqueued).toEqual([request.id]);
+  });
+
+  it('routes unmatched tasks away from the API channel when its fallback is disabled', async () => {
+    const { coordinator } = createHarness('agent_cli');
+    const result = await coordinator.submit(
+      { ...request, input: { text: 'Analyze this task', attachments: [] } },
+      { chatType: 'p2p' },
+    );
+
+    expect(result.route).toMatchObject({ executor: 'agent_cli', ruleId: 'fallback' });
   });
 
   it('re-enqueues recoverable database tasks idempotently', async () => {
