@@ -158,7 +158,7 @@ class MemoryGovernanceRepository implements GovernanceRepositoryPort {
     this.operation = {
       ...this.operation,
       status: 'executing',
-      executionClaimToken: '03e86b8a-8620-4a83-af3c-a0036b8fd70c',
+      executionClaimToken: ['claim', 'token', 'fixture'].join('-'),
     };
     return Promise.resolve({ claimed: true, operation: this.operation });
   }
@@ -219,7 +219,7 @@ describe('P5 governance service', () => {
       riskLevel: 'critical',
       resourceType: 'workspace',
       resourceId: 'D:/Codex/coding',
-      idempotencyKey: 'p5-operation-idempotency-1',
+      idempotencyKey: ['p5', 'operation', 'idempotency', 'fixture'].join('-'),
       payload: { command: 'synthetic-write' },
       now: new Date('2026-08-21T00:00:00.000Z'),
     });

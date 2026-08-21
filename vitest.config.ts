@@ -6,6 +6,7 @@ export default defineConfig({
   resolve: {
     alias: {
       '@feishu-agent/contracts': workspaceSource('contracts'),
+      '@feishu-agent/credentials': workspaceSource('credentials'),
       '@feishu-agent/database': workspaceSource('database'),
       '@feishu-agent/executors': workspaceSource('executors'),
       '@feishu-agent/integrations': workspaceSource('integrations'),
