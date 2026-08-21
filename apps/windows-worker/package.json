@@ -14,6 +14,7 @@
   },
   "dependencies": {
     "@feishu-agent/contracts": "workspace:*",
+    "@feishu-agent/credentials": "workspace:*",
     "@feishu-agent/executors": "workspace:*",
     "@feishu-agent/integrations": "workspace:*",
     "@feishu-agent/observability": "workspace:*",

@@ -1,14 +1,31 @@
 import {
+  ApprovalDecisionActionSchema,
+  AuthorizationDecisionSchema,
+  BudgetLimitSchema,
+  BudgetUsageSchema,
+  GovernanceRoleBindingSchema,
+  GovernanceRoleSchema,
   RouteContextSchema,
   RouteRuleSchema,
   TaskTransitionSchema,
+  ToolAuthorizationRequestSchema,
+  type ApprovalDecisionAction,
+  type ApprovalStatus,
+  type AuthorizationDecision,
+  type BudgetLimit,
+  type BudgetUsage,
   type ExecutorKind,
+  type GovernanceAction,
+  type GovernancePermission,
+  type GovernanceRole,
+  type GovernanceRoleBinding,
   type RiskLevel,
   type RouteContext,
   type RouteDecision,
   type RouteRule,
   type TaskStatus,
   type TaskTransition,
+  type ToolAuthorizationRequest,
 } from '@feishu-agent/contracts';
 
 export const terminalTaskStatuses: ReadonlySet<TaskStatus> = new Set([
@@ -122,4 +139,293 @@ export function requiresApproval({ operation, riskLevel }: OperationPolicyInput)
   }
 
   return riskLevel === 'high' || riskLevel === 'critical';
+}
+
+export const defaultGovernanceRoles: GovernanceRole[] = [
+  {
+    id: 'reader',
+    name: 'Enterprise reader',
+    description: 'Can discover and invoke deterministic platform and approved enterprise reads.',
+    system: true,
+    permissions: [
+      { action: 'tool.view', toolPattern: 'platform.*' },
+      { action: 'tool.invoke', toolPattern: 'platform.*' },
+      { action: 'tool.view', toolPattern: 'gitlab.read' },
+      { action: 'tool.invoke', toolPattern: 'gitlab.read', resourceScope: wildcardScope() },
+      { action: 'tool.view', toolPattern: 'confluence.read' },
+      { action: 'tool.invoke', toolPattern: 'confluence.read', resourceScope: wildcardScope() },
+      { action: 'tool.view', toolPattern: 'feishu.read' },
+      { action: 'tool.invoke', toolPattern: 'feishu.read', resourceScope: wildcardScope() },
+    ],
+  },
+  {
+    id: 'operator',
+    name: 'Agent operator',
+    description: 'Can run workspace operations after applicable approval policy is satisfied.',
+    system: true,
+    permissions: [
+      { action: 'tool.view', toolPattern: 'agent_cli.execute' },
+      { action: 'tool.invoke', toolPattern: 'agent_cli.execute', resourceScope: wildcardScope() },
+    ],
+  },
+  {
+    id: 'approver',
+    name: 'Operation approver',
+    description: 'Can approve, reject, expire, or revoke governed operations.',
+    system: true,
+    permissions: [{ action: 'approval.decide' }, { action: 'approval.revoke' }],
+  },
+  {
+    id: 'auditor',
+    name: 'Audit reader',
+    description: 'Can inspect and export redacted audit records.',
+    system: true,
+    permissions: [{ action: 'audit.read' }, { action: 'audit.export' }],
+  },
+  {
+    id: 'administrator',
+    name: 'Platform administrator',
+    description: 'Can administer all governance capabilities.',
+    system: true,
+    permissions: [{ action: '*', toolPattern: '*', resourceScope: wildcardScope() }],
+  },
+];
+
+export type ToolAuthorizationInput = Omit<ToolAuthorizationRequest, 'groupIds'> & {
+  groupIds?: string[];
+};
+
+export class RbacPolicy {
+  private readonly roles: Map<string, GovernanceRole>;
+  private readonly bindings: GovernanceRoleBinding[];
+
+  public constructor(roles: GovernanceRole[], bindings: GovernanceRoleBinding[]) {
+    this.roles = new Map(
+      roles.map((role) => {
+        const validated = GovernanceRoleSchema.parse(role);
+        return [validated.id, validated];
+      }),
+    );
+    this.bindings = bindings.map((binding) => GovernanceRoleBindingSchema.parse(binding));
+    const unknownRole = this.bindings.find((binding) => !this.roles.has(binding.roleId));
+    if (unknownRole) {
+      throw new Error(`Role binding references unknown role: ${unknownRole.roleId}`);
+    }
+  }
+
+  public authorizeTool(
+    requestInput: ToolAuthorizationInput,
+    action: Extract<GovernanceAction, 'tool.view' | 'tool.invoke'> = 'tool.invoke',
+  ): AuthorizationDecision {
+    const request = ToolAuthorizationRequestSchema.parse(requestInput);
+    const roleIds = this.roleIdsFor(request.userId, request.groupIds);
+    const allowed = roleIds.some((roleId) =>
+      this.roles
+        .get(roleId)
+        ?.permissions.some((permission) => matchesToolPermission(permission, action, request)),
+    );
+    return AuthorizationDecisionSchema.parse({
+      allowed,
+      roleIds,
+      reason: allowed
+        ? `Authorized ${action} through role scope.`
+        : `No assigned role grants ${action} for ${request.toolName}.`,
+    });
+  }
+
+  public authorizeAction(input: {
+    userId: string;
+    groupIds?: string[];
+    action: Exclude<GovernanceAction, 'tool.view' | 'tool.invoke'>;
+  }): AuthorizationDecision {
+    const roleIds = this.roleIdsFor(input.userId, input.groupIds ?? []);
+    const allowed = roleIds.some((roleId) =>
+      this.roles
+        .get(roleId)
+        ?.permissions.some(
+          (permission) => permission.action === '*' || permission.action === input.action,
+        ),
+    );
+    return AuthorizationDecisionSchema.parse({
+      allowed,
+      roleIds,
+      reason: allowed
+        ? `Authorized ${input.action} through role scope.`
+        : `No assigned role grants ${input.action}.`,
+    });
+  }
+
+  public visibleTools(input: {
+    userId: string;
+    groupIds?: string[];
+    toolNames: string[];
+  }): string[] {
+    return input.toolNames.filter(
+      (toolName) =>
+        this.authorizeTool(
+          { userId: input.userId, groupIds: input.groupIds ?? [], toolName },
+          'tool.view',
+        ).allowed ||
+        this.authorizeTool(
+          { userId: input.userId, groupIds: input.groupIds ?? [], toolName },
+          'tool.invoke',
+        ).allowed,
+    );
+  }
+
+  private roleIdsFor(userId: string, groupIds: string[]): string[] {
+    const groups = new Set(groupIds);
+    return [
+      ...new Set(
+        this.bindings
+          .filter(
+            (binding) =>
+              (binding.principalType === 'user' && binding.principalId === userId) ||
+              (binding.principalType === 'group' && groups.has(binding.principalId)),
+          )
+          .map((binding) => binding.roleId),
+      ),
+    ].sort();
+  }
+}
+
+export function nextApprovalStatus(
+  current: ApprovalStatus,
+  actionInput: ApprovalDecisionAction,
+): ApprovalStatus {
+  const action = ApprovalDecisionActionSchema.parse(actionInput);
+  if (current === 'approved' && action === 'revoke') {
+    return 'revoked';
+  }
+  if (current !== 'pending') {
+    throw new Error(`Approval cannot transition from ${current} with ${action}.`);
+  }
+  const statuses: Record<ApprovalDecisionAction, ApprovalStatus> = {
+    approve: 'approved',
+    reject: 'rejected',
+    revoke: 'revoked',
+    expire: 'expired',
+  };
+  return statuses[action];
+}
+
+export function assertApprovalActor(input: {
+  requestedBy: string;
+  decidedBy: string;
+  allowSelfApproval?: boolean;
+}): void {
+  if (!input.allowSelfApproval && input.requestedBy === input.decidedBy) {
+    throw new Error('Requester cannot approve or reject their own governed operation.');
+  }
+}
+
+export interface BudgetEvaluation {
+  allowed: boolean;
+  violations: Array<{
+    scopeType: BudgetLimit['scopeType'];
+    scopeId: string;
+    dimension: 'tokens' | 'cost';
+    limit: number;
+    projected: number;
+  }>;
+}
+
+export function evaluateBudget(input: {
+  limits: BudgetLimit[];
+  usage: BudgetUsage[];
+  proposedTokens: number;
+  proposedCostMicros: number;
+}): BudgetEvaluation {
+  if (!Number.isInteger(input.proposedTokens) || input.proposedTokens < 0) {
+    throw new Error('proposedTokens must be a non-negative integer.');
+  }
+  if (!Number.isInteger(input.proposedCostMicros) || input.proposedCostMicros < 0) {
+    throw new Error('proposedCostMicros must be a non-negative integer.');
+  }
+  const usage = input.usage.map((entry) => BudgetUsageSchema.parse(entry));
+  const violations: BudgetEvaluation['violations'] = [];
+  for (const limitInput of input.limits) {
+    const limit = BudgetLimitSchema.parse(limitInput);
+    const current = usage.find(
+      (entry) =>
+        entry.scopeType === limit.scopeType &&
+        entry.scopeId === limit.scopeId &&
+        entry.period === limit.period,
+    );
+    const projectedTokens = (current?.tokensUsed ?? 0) + input.proposedTokens;
+    const projectedCost = (current?.costMicrosUsed ?? 0) + input.proposedCostMicros;
+    if (projectedTokens > limit.tokenLimit) {
+      violations.push({
+        scopeType: limit.scopeType,
+        scopeId: limit.scopeId,
+        dimension: 'tokens',
+        limit: limit.tokenLimit,
+        projected: projectedTokens,
+      });
+    }
+    if (projectedCost > limit.costLimitMicros) {
+      violations.push({
+        scopeType: limit.scopeType,
+        scopeId: limit.scopeId,
+        dimension: 'cost',
+        limit: limit.costLimitMicros,
+        projected: projectedCost,
+      });
+    }
+  }
+  return { allowed: violations.length === 0, violations };
+}
+
+const sensitiveAuditKey =
+  /(authorization|cookie|password|secret|token|credential|private[-_]?key)/i;
+const secretValue = /(bearer\s+[a-z0-9._~+/-]+=*|glpat-[a-z0-9_-]+|sk-[a-z0-9_-]+)/gi;
+
+export function redactAuditDetails(value: unknown): unknown {
+  if (Array.isArray(value)) {
+    return value.map((item) => redactAuditDetails(item));
+  }
+  if (value && typeof value === 'object') {
+    return Object.fromEntries(
+      Object.entries(value as Record<string, unknown>).map(([key, item]) => [
+        key,
+        sensitiveAuditKey.test(key) ? '[REDACTED]' : redactAuditDetails(item),
+      ]),
+    );
+  }
+  return typeof value === 'string' ? value.replace(secretValue, '[REDACTED]') : value;
+}
+
+function wildcardScope(): { resourceType: string; resourcePattern: string } {
+  return { resourceType: '*', resourcePattern: '*' };
+}
+
+function matchesToolPermission(
+  permission: GovernancePermission,
+  action: 'tool.view' | 'tool.invoke',
+  request: ToolAuthorizationRequest,
+): boolean {
+  if (permission.action !== '*' && permission.action !== action) {
+    return false;
+  }
+  if (!matchesPattern(permission.toolPattern ?? '*', request.toolName)) {
+    return false;
+  }
+  if (!permission.resourceScope) {
+    return request.resourceType === undefined && request.resourceId === undefined;
+  }
+  return (
+    matchesPattern(permission.resourceScope.resourceType, request.resourceType ?? '') &&
+    matchesPattern(permission.resourceScope.resourcePattern, request.resourceId ?? '')
+  );
+}
+
+function matchesPattern(pattern: string, value: string): boolean {
+  if (pattern === '*') {
+    return true;
+  }
+  if (!pattern.includes('*')) {
+    return pattern === value;
+  }
+  const escaped = pattern.replace(/[.+?^${}()|[\]\\]/g, '\\$&').replaceAll('*', '.*');
+  return new RegExp(`^${escaped}$`, 'u').test(value);
 }

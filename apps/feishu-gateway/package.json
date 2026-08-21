@@ -11,10 +11,12 @@
     "verify:wss": "tsx --env-file-if-exists=../../.env src/verify-wss.ts"
   },
   "dependencies": {
+    "@feishu-agent/credentials": "workspace:*",
     "@feishu-agent/observability": "workspace:*",
     "@larksuiteoapi/node-sdk": "1.73.0",
     "fastify": "^5.6.2",
-    "ioredis": "5.8.2"
+    "ioredis": "5.8.2",
+    "zod": "^4.1.12"
   },
   "devDependencies": {
     "@types/ws": "8.18.1",

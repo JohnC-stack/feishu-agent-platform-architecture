@@ -11,6 +11,14 @@ import {
 import type { FeishuGatewayConfig } from './config.js';
 
 export type FeishuMessageEvent = Parameters<NonNullable<EventHandles['im.message.receive_v1']>>[0];
+export interface FeishuCardActionEvent {
+  context?: { open_message_id?: string; open_chat_id?: string };
+  open_message_id?: string;
+  open_chat_id?: string;
+  operator?: { open_id?: string; user_id?: string; union_id?: string; name?: string };
+  action?: { value?: unknown; tag?: string; name?: string; option?: string };
+}
+export type FeishuCardActionResponse = Record<string, unknown>;
 
 export type GatewayConnectionState = 'disabled' | WSConnectionState;
 
@@ -50,6 +58,9 @@ export type WsClientFactory = (
 export interface FeishuConnectionOptions {
   config: FeishuGatewayConfig;
   onMessage?(event: FeishuMessageEvent): void | Promise<void>;
+  onCardAction?(
+    event: FeishuCardActionEvent,
+  ): FeishuCardActionResponse | void | Promise<FeishuCardActionResponse | void>;
   clientFactory?: WsClientFactory;
 }
 
@@ -60,6 +71,7 @@ export function createFeishuConnection(options: FeishuConnectionOptions): Feishu
   return new ManagedFeishuConnection(
     options.config,
     messageHandler,
+    async (event) => options.onCardAction?.(event),
     options.clientFactory ?? createSdkClient,
   );
 }
@@ -88,6 +100,9 @@ class ManagedFeishuConnection implements FeishuConnectionRuntime {
   public constructor(
     private readonly config: FeishuGatewayConfig,
     private readonly onMessage: (event: FeishuMessageEvent) => void | Promise<void>,
+    private readonly onCardAction: (
+      event: FeishuCardActionEvent,
+    ) => FeishuCardActionResponse | void | Promise<FeishuCardActionResponse | void>,
     private readonly clientFactory: WsClientFactory,
   ) {
     this.state = config.enabled ? 'idle' : 'disabled';
@@ -111,6 +126,16 @@ class ManagedFeishuConnection implements FeishuConnectionRuntime {
     const dispatcher = new EventDispatcher({ loggerLevel: LoggerLevel.info }).register({
       'im.message.receive_v1': async (event) => {
         await this.onMessage(event);
+      },
+    });
+    const registerCardCallback = dispatcher.register.bind(dispatcher) as unknown as (handles: {
+      'card.action.trigger': (
+        event: FeishuCardActionEvent,
+      ) => Promise<FeishuCardActionResponse | void>;
+    }) => EventDispatcher;
+    registerCardCallback({
+      'card.action.trigger': async (event) => {
+        return this.onCardAction(event);
       },
     });
 

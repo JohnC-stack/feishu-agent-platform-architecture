@@ -4,6 +4,7 @@ import type { TaskRequest } from '@feishu-agent/contracts';
 import { ToolGateway } from '@feishu-agent/executors';
 
 import { verifyGitLabTokenPolicy } from './gitlab-token-policy.js';
+import { resolveCredentialEnvironment } from './credential-bootstrap.js';
 import { createEnterpriseIntegrationRuntime } from './integration-tools.js';
 
 interface VerificationCheck {
@@ -15,6 +16,7 @@ interface VerificationCheck {
 }
 
 async function main(): Promise<void> {
+  await resolveCredentialEnvironment();
   const runtime = createEnterpriseIntegrationRuntime();
   const gateway = new ToolGateway(runtime.tools);
   const requested = new Set(

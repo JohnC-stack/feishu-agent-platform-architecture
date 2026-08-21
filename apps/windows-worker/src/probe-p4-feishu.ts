@@ -1,3 +1,5 @@
+import { resolveCredentialEnvironment } from './credential-bootstrap.js';
+
 interface FeishuResponse {
   code?: number;
   data?: Record<string, unknown>;
@@ -13,6 +15,7 @@ interface ProbeResult {
 }
 
 async function main(): Promise<void> {
+  await resolveCredentialEnvironment();
   const appId = process.env.FEISHU_APP_ID;
   const appSecret = process.env.FEISHU_APP_SECRET;
   if (!appId || !appSecret) {

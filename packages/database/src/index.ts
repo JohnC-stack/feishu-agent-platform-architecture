@@ -1,6 +1,7 @@
 import postgres from 'postgres';
 
 export * from './task-repository.js';
+export * from './governance-repository.js';
 
 export type DatabaseClient = ReturnType<typeof postgres>;
 

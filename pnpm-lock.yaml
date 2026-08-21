@@ -98,6 +98,9 @@ importers:
 
   apps/feishu-gateway:
     dependencies:
+      '@feishu-agent/credentials':
+        specifier: workspace:*
+        version: link:../../packages/credentials
       '@feishu-agent/observability':
         specifier: workspace:*
         version: link:../../packages/observability
@@ -110,6 +113,9 @@ importers:
       ioredis:
         specifier: 5.8.2
         version: 5.8.2(supports-color@7.2.0)
+      zod:
+        specifier: ^4.1.12
+        version: 4.1.12
     devDependencies:
       '@types/ws':
         specifier: 8.18.1
@@ -123,6 +129,9 @@ importers:
       '@feishu-agent/contracts':
         specifier: workspace:*
         version: link:../../packages/contracts
+      '@feishu-agent/credentials':
+        specifier: workspace:*
+        version: link:../../packages/credentials
       '@feishu-agent/executors':
         specifier: workspace:*
         version: link:../../packages/executors
@@ -144,6 +153,12 @@ importers:
       zod:
         specifier: ^4.1.12
         version: 4.4.3
+
+  packages/credentials:
+    dependencies:
+      '@feishu-agent/contracts':
+        specifier: workspace:*
+        version: link:../contracts
 
   packages/database:
     dependencies:

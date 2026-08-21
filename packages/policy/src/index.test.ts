@@ -1,11 +1,17 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+  RbacPolicy,
   RuleRouter,
   allowedTransitions,
+  assertApprovalActor,
   assertTransition,
   canTransition,
   createTaskTransition,
+  defaultGovernanceRoles,
+  evaluateBudget,
+  nextApprovalStatus,
+  redactAuditDetails,
   requiresApproval,
   terminalTaskStatuses,
 } from './index.js';
@@ -86,5 +92,109 @@ describe('operation approval policy', () => {
     expect(requiresApproval({ operation: 'write', riskLevel: 'high' })).toBe(true);
     expect(requiresApproval({ operation: 'read', riskLevel: 'critical' })).toBe(false);
     expect(requiresApproval({ operation: 'write', riskLevel: 'low' })).toBe(false);
+  });
+});
+
+describe('P5 governance policy', () => {
+  const policy = new RbacPolicy(defaultGovernanceRoles, [
+    { principalType: 'user', principalId: 'reader-1', roleId: 'reader' },
+    { principalType: 'group', principalId: 'operators', roleId: 'operator' },
+    { principalType: 'user', principalId: 'approver-1', roleId: 'approver' },
+  ]);
+
+  it('hides tools that are not granted to a principal', () => {
+    expect(
+      policy.visibleTools({
+        userId: 'reader-1',
+        toolNames: ['platform.health', 'gitlab.read', 'agent_cli.execute'],
+      }),
+    ).toEqual(['platform.health', 'gitlab.read']);
+    expect(policy.authorizeTool({ userId: 'unknown', toolName: 'platform.health' }).allowed).toBe(
+      false,
+    );
+  });
+
+  it('combines user and group role bindings without granting unrelated actions', () => {
+    expect(
+      policy.authorizeTool({
+        userId: 'reader-1',
+        groupIds: ['operators'],
+        toolName: 'agent_cli.execute',
+        resourceType: 'workspace',
+        resourceId: 'D:/Codex/coding',
+      }).allowed,
+    ).toBe(true);
+    expect(policy.authorizeAction({ userId: 'reader-1', action: 'approval.decide' }).allowed).toBe(
+      false,
+    );
+    expect(
+      policy.authorizeAction({ userId: 'approver-1', action: 'approval.decide' }).allowed,
+    ).toBe(true);
+  });
+
+  it('enforces terminal approval decisions and separation of duties', () => {
+    expect(nextApprovalStatus('pending', 'approve')).toBe('approved');
+    expect(nextApprovalStatus('approved', 'revoke')).toBe('revoked');
+    expect(() => nextApprovalStatus('rejected', 'approve')).toThrow('cannot transition');
+    expect(() => assertApprovalActor({ requestedBy: 'user-1', decidedBy: 'user-1' })).toThrow(
+      'cannot approve',
+    );
+  });
+
+  it('checks token and cost budgets across every supplied scope', () => {
+    const result = evaluateBudget({
+      limits: [
+        {
+          scopeType: 'user',
+          scopeId: 'reader-1',
+          period: 'day',
+          tokenLimit: 1_000,
+          costLimitMicros: 500,
+        },
+        {
+          scopeType: 'model',
+          scopeId: 'gpt-test',
+          period: 'day',
+          tokenLimit: 10_000,
+          costLimitMicros: 10_000,
+        },
+      ],
+      usage: [
+        {
+          scopeType: 'user',
+          scopeId: 'reader-1',
+          period: 'day',
+          tokensUsed: 900,
+          costMicrosUsed: 100,
+        },
+      ],
+      proposedTokens: 200,
+      proposedCostMicros: 50,
+    });
+    expect(result.allowed).toBe(false);
+    expect(result.violations).toEqual([
+      {
+        scopeType: 'user',
+        scopeId: 'reader-1',
+        dimension: 'tokens',
+        limit: 1_000,
+        projected: 1_100,
+      },
+    ]);
+  });
+
+  it('redacts nested credentials and token-shaped strings from audit details', () => {
+    expect(
+      redactAuditDetails({
+        authorization: 'Bearer live-value',
+        nested: {
+          appSecret: 'do-not-store',
+          trace: `PRIVATE-TOKEN: ${['glpat', 'fixture', 'value'].join('-')}`,
+        },
+      }),
+    ).toEqual({
+      authorization: '[REDACTED]',
+      nested: { appSecret: '[REDACTED]', trace: 'PRIVATE-TOKEN: [REDACTED]' },
+    });
   });
 });

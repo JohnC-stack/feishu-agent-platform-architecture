@@ -221,3 +221,153 @@ export const HealthResponseSchema = z.object({
 });
 
 export type HealthResponse = z.infer<typeof HealthResponseSchema>;
+
+export const governancePrincipalTypes = ['user', 'group', 'service'] as const;
+export const GovernancePrincipalTypeSchema = z.enum(governancePrincipalTypes);
+export type GovernancePrincipalType = z.infer<typeof GovernancePrincipalTypeSchema>;
+
+export const governanceActions = [
+  '*',
+  'tool.view',
+  'tool.invoke',
+  'approval.decide',
+  'approval.revoke',
+  'audit.read',
+  'audit.export',
+  'budget.manage',
+  'credential.resolve',
+] as const;
+export const GovernanceActionSchema = z.enum(governanceActions);
+export type GovernanceAction = z.infer<typeof GovernanceActionSchema>;
+
+export const GovernanceResourceScopeSchema = z
+  .object({
+    resourceType: z.string().min(1).max(100),
+    resourcePattern: z.string().min(1).max(500),
+  })
+  .strict();
+export type GovernanceResourceScope = z.infer<typeof GovernanceResourceScopeSchema>;
+
+export const GovernancePermissionSchema = z
+  .object({
+    action: GovernanceActionSchema,
+    toolPattern: z.string().min(1).max(200).optional(),
+    resourceScope: GovernanceResourceScopeSchema.optional(),
+  })
+  .strict();
+export type GovernancePermission = z.infer<typeof GovernancePermissionSchema>;
+
+export const GovernanceRoleSchema = z
+  .object({
+    id: z.string().min(1).max(100),
+    name: z.string().min(1).max(200),
+    description: z.string().max(1_000).optional(),
+    system: z.boolean().default(false),
+    permissions: z.array(GovernancePermissionSchema).max(500),
+  })
+  .strict();
+export type GovernanceRole = z.infer<typeof GovernanceRoleSchema>;
+
+export const GovernanceRoleBindingSchema = z
+  .object({
+    principalType: GovernancePrincipalTypeSchema,
+    principalId: z.string().min(1).max(500),
+    roleId: z.string().min(1).max(100),
+  })
+  .strict();
+export type GovernanceRoleBinding = z.infer<typeof GovernanceRoleBindingSchema>;
+
+export const ToolAuthorizationRequestSchema = z
+  .object({
+    userId: z.string().min(1).max(500),
+    groupIds: z.array(z.string().min(1).max(500)).max(100).default([]),
+    toolName: z.string().min(1).max(200),
+    resourceType: z.string().min(1).max(100).optional(),
+    resourceId: z.string().min(1).max(1_000).optional(),
+  })
+  .strict();
+export type ToolAuthorizationRequest = z.infer<typeof ToolAuthorizationRequestSchema>;
+
+export const AuthorizationDecisionSchema = z
+  .object({
+    allowed: z.boolean(),
+    roleIds: z.array(z.string().min(1).max(100)),
+    reason: z.string().min(1).max(1_000),
+  })
+  .strict();
+export type AuthorizationDecision = z.infer<typeof AuthorizationDecisionSchema>;
+
+export const approvalStatuses = ['pending', 'approved', 'rejected', 'expired', 'revoked'] as const;
+export const ApprovalStatusSchema = z.enum(approvalStatuses);
+export type ApprovalStatus = z.infer<typeof ApprovalStatusSchema>;
+
+export const approvalDecisionActions = ['approve', 'reject', 'revoke', 'expire'] as const;
+export const ApprovalDecisionActionSchema = z.enum(approvalDecisionActions);
+export type ApprovalDecisionAction = z.infer<typeof ApprovalDecisionActionSchema>;
+
+export const governedOperationStatuses = [
+  'pending_approval',
+  'approved',
+  'executing',
+  'succeeded',
+  'failed',
+  'rejected',
+  'expired',
+  'revoked',
+] as const;
+export const GovernedOperationStatusSchema = z.enum(governedOperationStatuses);
+export type GovernedOperationStatus = z.infer<typeof GovernedOperationStatusSchema>;
+
+export const GovernedOperationRequestSchema = z
+  .object({
+    id: z.string().uuid(),
+    taskId: z.string().uuid(),
+    requestedBy: z.string().min(1).max(500),
+    chatId: z.string().min(1).max(500),
+    toolName: z.string().min(1).max(200),
+    operation: z.enum(['read', 'write']),
+    riskLevel: RiskLevelSchema,
+    resourceType: z.string().min(1).max(100),
+    resourceId: z.string().min(1).max(1_000),
+    idempotencyKey: z.string().min(16).max(500),
+    requestHash: z.string().regex(/^[a-f0-9]{64}$/),
+    payload: z.record(z.string(), z.unknown()).default({}),
+    expiresAt: z.string().datetime(),
+  })
+  .strict();
+export type GovernedOperationRequest = z.infer<typeof GovernedOperationRequestSchema>;
+
+export const budgetScopeTypes = ['user', 'group', 'task', 'model'] as const;
+export const BudgetScopeTypeSchema = z.enum(budgetScopeTypes);
+export type BudgetScopeType = z.infer<typeof BudgetScopeTypeSchema>;
+
+export const BudgetLimitSchema = z
+  .object({
+    scopeType: BudgetScopeTypeSchema,
+    scopeId: z.string().min(1).max(500),
+    period: z.enum(['task', 'day', 'month']),
+    tokenLimit: z.number().int().nonnegative(),
+    costLimitMicros: z.number().int().nonnegative(),
+  })
+  .strict();
+export type BudgetLimit = z.infer<typeof BudgetLimitSchema>;
+
+export const BudgetUsageSchema = z
+  .object({
+    scopeType: BudgetScopeTypeSchema,
+    scopeId: z.string().min(1).max(500),
+    period: z.enum(['task', 'day', 'month']),
+    tokensUsed: z.number().int().nonnegative(),
+    costMicrosUsed: z.number().int().nonnegative(),
+  })
+  .strict();
+export type BudgetUsage = z.infer<typeof BudgetUsageSchema>;
+
+export const CredentialReferenceSchema = z
+  .object({
+    name: z.string().min(1).max(100),
+    provider: z.enum(['windows_credential_manager', 'enterprise_secret_manager']),
+    target: z.string().min(1).max(500),
+  })
+  .strict();
+export type CredentialReference = z.infer<typeof CredentialReferenceSchema>;

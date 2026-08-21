@@ -2,12 +2,16 @@ import type { FastifyInstance } from 'fastify';
 import { ZodError } from 'zod';
 
 import { buildServiceApp, type ServiceOptions } from '@feishu-agent/observability';
+import { BudgetExceededError, GovernanceConflictError } from '@feishu-agent/database';
 
+import { registerGovernanceRoutes } from './governance-routes.js';
+import { GovernanceAuthorizationError, type GovernanceService } from './governance-service.js';
 import { registerTaskRoutes } from './routes.js';
 import type { TaskCoordinator } from './task-coordinator.js';
 
 export interface ControlApiDependencies {
   coordinator?: TaskCoordinator;
+  governance?: GovernanceService;
   readinessProbes?: ServiceOptions['readinessProbes'];
   onClose?(): void | Promise<void>;
 }
@@ -20,8 +24,8 @@ export const controlApiOptions: ServiceOptions = {
   registerRoutes(app) {
     app.get('/', () => ({
       service: 'control-api',
-      phase: 'P4',
-      message: 'Control plane scheduling and executor dispatch API is running.',
+      phase: 'P5',
+      message: 'Governed scheduling, approval, budget, and audit API is running.',
     }));
   },
 };
@@ -33,7 +37,10 @@ export function createControlApi(dependencies: ControlApiDependencies = {}): Fas
     async registerRoutes(scope) {
       await controlApiOptions.registerRoutes?.(scope);
       if (dependencies.coordinator) {
-        registerTaskRoutes(scope, dependencies.coordinator);
+        registerTaskRoutes(scope, dependencies.coordinator, dependencies.governance);
+      }
+      if (dependencies.governance) {
+        registerGovernanceRoutes(scope, dependencies.governance);
       }
     },
   });
@@ -56,6 +63,19 @@ export function createControlApi(dependencies: ControlApiDependencies = {}): Fas
           message: issue.message,
         })),
       });
+    }
+    if (error instanceof GovernanceAuthorizationError) {
+      return reply.code(403).send({ error: error.code, message: error.message });
+    }
+    if (error instanceof BudgetExceededError) {
+      return reply.code(429).send({
+        error: 'BUDGET_EXCEEDED',
+        message: error.message,
+        violations: error.violations,
+      });
+    }
+    if (error instanceof GovernanceConflictError) {
+      return reply.code(409).send({ error: error.code, message: error.message });
     }
     request.log.error({ error }, 'request failed');
     return reply.code(500).send({ error: 'internal_error' });

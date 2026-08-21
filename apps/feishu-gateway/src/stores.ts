@@ -10,7 +10,8 @@ export interface IdempotencyLease {
 
 export interface IdempotencyStore {
   begin(namespace: string, key: string, leaseSeconds: number): Promise<IdempotencyLease | null>;
-  complete(lease: IdempotencyLease, ttlSeconds: number): Promise<boolean>;
+  complete(lease: IdempotencyLease, ttlSeconds: number, result?: string): Promise<boolean>;
+  getCompletion(namespace: string, key: string): Promise<string | undefined>;
   release(lease: IdempotencyLease): Promise<boolean>;
 }
 
@@ -52,15 +53,26 @@ export class RedisIdempotencyStore implements IdempotencyStore {
     return result === 'OK' ? lease : null;
   }
 
-  public async complete(lease: IdempotencyLease, ttlSeconds: number): Promise<boolean> {
-    const result = await this.redis.eval(
-      "if redis.call('GET', KEYS[1]) == ARGV[1] then redis.call('SET', KEYS[1], 'completed', 'EX', ARGV[2]); return 1 else return 0 end",
+  public async complete(
+    lease: IdempotencyLease,
+    ttlSeconds: number,
+    result?: string,
+  ): Promise<boolean> {
+    const completedValue = result === undefined ? 'completed' : `completed:${result}`;
+    const redisResult = await this.redis.eval(
+      "if redis.call('GET', KEYS[1]) == ARGV[1] then redis.call('SET', KEYS[1], ARGV[3], 'EX', ARGV[2]); return 1 else return 0 end",
       1,
       redisKey(lease.namespace, lease.key),
       lease.token,
       String(ttlSeconds),
+      completedValue,
     );
-    return result === 1;
+    return redisResult === 1;
+  }
+
+  public async getCompletion(namespace: string, key: string): Promise<string | undefined> {
+    const value = await this.redis.get(redisKey(namespace, key));
+    return value?.startsWith('completed:') ? value.slice('completed:'.length) : undefined;
   }
 
   public async release(lease: IdempotencyLease): Promise<boolean> {
@@ -119,13 +131,24 @@ export class InMemoryIdempotencyStore implements IdempotencyStore {
     return Promise.resolve(lease);
   }
 
-  public complete(lease: IdempotencyLease, ttlSeconds: number): Promise<boolean> {
+  public complete(lease: IdempotencyLease, ttlSeconds: number, result?: string): Promise<boolean> {
     const storageKey = `${lease.namespace}:${lease.key}`;
     if (this.entries.get(storageKey)?.value !== lease.token) {
       return Promise.resolve(false);
     }
-    this.entries.set(storageKey, { value: 'completed', expiresAt: Date.now() + ttlSeconds * 1000 });
+    this.entries.set(storageKey, {
+      value: result === undefined ? 'completed' : `completed:${result}`,
+      expiresAt: Date.now() + ttlSeconds * 1000,
+    });
     return Promise.resolve(true);
+  }
+
+  public getCompletion(namespace: string, key: string): Promise<string | undefined> {
+    const entry = this.entries.get(`${namespace}:${key}`);
+    if (!entry || entry.expiresAt <= Date.now() || !entry.value.startsWith('completed:')) {
+      return Promise.resolve(undefined);
+    }
+    return Promise.resolve(entry.value.slice('completed:'.length));
   }
 
   public release(lease: IdempotencyLease): Promise<boolean> {

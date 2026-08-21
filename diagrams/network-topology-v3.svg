@@ -64,7 +64,7 @@
   <rect x="420" y="280" width="290" height="275" rx="18" class="blue-node"/>
   <circle cx="470" cy="335" r="27" fill="#2563EB"/><text x="470" y="345" text-anchor="middle" style="font-size:23px;font-weight:700;fill:#FFF">飞</text>
   <text x="515" y="330" class="section-title">飞书云平台</text><text x="515" y="360" class="desc">事件网关 + OpenAPI</text>
-  <rect x="452" y="402" width="226" height="58" rx="10" fill="#FFF" stroke="#93C5FD" stroke-width="2"/><text x="565" y="438" text-anchor="middle" class="title">WSS 长连接事件</text>
+  <rect x="452" y="402" width="226" height="58" rx="10" fill="#FFF" stroke="#93C5FD" stroke-width="2"/><text x="565" y="438" text-anchor="middle" class="title">WSS 消息 / 卡片回调</text>
   <rect x="452" y="477" width="226" height="52" rx="10" fill="#FFF" stroke="#93C5FD" stroke-width="2"/><text x="565" y="510" text-anchor="middle" class="title">消息 OpenAPI</text>
 
   <rect x="420" y="880" width="290" height="175" rx="18" class="purple-node"/>
@@ -82,11 +82,11 @@
 
   <!-- Windows host / native execution plane -->
   <rect x="980" y="255" width="940" height="480" rx="16" class="native"/>
-  <text x="1005" y="293" class="section-title">Windows 原生执行面</text><text x="1260" y="293" class="zone-sub">Windows Service · 本机凭据 / VPN / 工作区 / CLI</text>
+  <text x="1005" y="293" class="section-title">Windows 原生执行面</text><text x="1260" y="293" class="zone-sub">Windows Service · Credential Manager / VPN / 工作区 / CLI</text>
 
   <rect x="1015" y="335" width="250" height="120" rx="12" class="green-node"/>
   <circle cx="1055" cy="385" r="22" fill="#059669"/><path d="M1044 386A11 11 0 0 1 1066 386M1038 386A17 17 0 0 1 1072 386" fill="none" stroke="#FFF" stroke-width="3"/>
-  <text x="1090" y="378" class="title">飞书 WSS Gateway</text><text x="1090" y="408" class="desc">事件接入 / 回复调度</text><text x="1090" y="432" class="note" fill="#047857">只建立出站连接</text>
+  <text x="1090" y="378" class="title">飞书 WSS Gateway</text><text x="1090" y="408" class="desc">消息 / 审批回调 / 回复</text><text x="1090" y="432" class="note" fill="#047857">只建立出站连接</text>
 
   <rect x="1310" y="335" width="250" height="120" rx="12" class="orange-node"/>
   <polygon points="1350,370 1370,390 1350,410 1330,390" fill="#D97706"/>
@@ -124,7 +124,7 @@
 
   <rect x="1015" y="1055" width="250" height="125" rx="12" class="node"/>
   <ellipse cx="1055" cy="1098" rx="21" ry="7" fill="#E2E8F0" stroke="#64748B" stroke-width="2"/><path d="M1034 1098V1129Q1034 1141 1076 1141V1098" fill="#E2E8F0" stroke="#64748B" stroke-width="2"/>
-  <text x="1090" y="1095" class="title">PostgreSQL</text><text x="1090" y="1125" class="desc">配置 / 会话 / 审计</text><text x="1090" y="1152" class="desc">加密卷与定时备份</text>
+  <text x="1090" y="1095" class="title">PostgreSQL</text><text x="1090" y="1125" class="desc">配置 / 审批 / 审计</text><text x="1090" y="1152" class="desc">加密卷与定时备份</text>
 
   <rect x="1310" y="1055" width="250" height="125" rx="12" class="node"/>
   <circle cx="1350" cy="1107" r="22" fill="#475569"/><path d="M1338 1115L1345 1101L1352 1110L1361 1094" fill="none" stroke="#FFF" stroke-width="3" stroke-linecap="round"/>

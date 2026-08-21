@@ -24,9 +24,9 @@ export function createFeishuGatewayOptions(
     registerRoutes(app) {
       app.get('/', () => ({
         service: 'feishu-gateway',
-        phase: 'P1',
+        phase: 'P5',
         connection: connection.getSnapshot(),
-        message: 'Feishu WSS gateway is available.',
+        message: 'Feishu WSS message and approval callback gateway is available.',
       }));
       app.get('/connection', () => connection.getSnapshot());
     },

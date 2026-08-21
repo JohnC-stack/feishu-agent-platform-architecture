@@ -32,7 +32,7 @@ export function createWindowsWorker(dependencies: WindowsWorkerDependencies = {}
     registerRoutes(scope) {
       scope.get('/', () => ({
         service: 'windows-worker',
-        phase: 'P4',
+        phase: 'P5',
         executors: [
           'direct_tool',
           ...(runtime.status.apiAgentEnabled ? ['api_agent'] : []),

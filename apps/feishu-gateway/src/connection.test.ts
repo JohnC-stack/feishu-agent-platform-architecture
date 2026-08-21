@@ -140,6 +140,41 @@ describe('managed Feishu WSS connection', () => {
     await connection.stop();
   });
 
+  it('returns the terminal card through the WSS callback response', async () => {
+    let fakeClient: FakeWsClient | undefined;
+    const terminalCard = {
+      config: { update_multi: true },
+      header: { template: 'green', title: { tag: 'plain_text', content: '审批已批准' } },
+      elements: [{ tag: 'markdown', content: '审批状态：approved' }],
+    };
+    const connection = createFeishuConnection({
+      config,
+      clientFactory: (_config, callbacks) => {
+        fakeClient = new FakeWsClient(callbacks);
+        return fakeClient;
+      },
+      onCardAction: () => terminalCard,
+    });
+
+    await connection.start();
+    const response = await fakeClient?.dispatcher?.invoke(
+      {
+        schema: '2.0',
+        header: { event_id: 'card-contract', event_type: 'card.action.trigger' },
+        event: {
+          context: { open_message_id: 'om_card', open_chat_id: 'oc_card' },
+          operator: { open_id: 'ou_approver' },
+          action: { tag: 'button', value: { action: 'approve' } },
+        },
+      },
+      { needCheck: false },
+    );
+
+    expect(response).toEqual(terminalCard);
+    expect(JSON.stringify(response)).not.toContain('button');
+    await connection.stop();
+  });
+
   it('fails closed when the initial WSS handshake never becomes ready', async () => {
     let closed = false;
     const factory: WsClientFactory = () => ({

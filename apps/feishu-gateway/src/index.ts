@@ -1,4 +1,10 @@
 import { createFeishuGateway, createFeishuGatewayOptions } from './app.js';
+import {
+  ApprovalCardActionProcessor,
+  createControlApiApprovalClient,
+  createSdkApprovalCardClient,
+} from './approval.js';
+import { registerApprovalDeliveryRoutes } from './approval-routes.js';
 import { loadFeishuGatewayConfig } from './config.js';
 import { createFeishuConnection } from './connection.js';
 import { loadMessagePipelineConfig } from './pipeline-config.js';
@@ -7,6 +13,13 @@ import { createSdkReplyClient, ReplyDispatcher } from './reply.js';
 import { createRedisClient, RedisIdempotencyStore, RedisRateLimiter } from './stores.js';
 
 async function main(): Promise<void> {
+  await resolveEnvironmentCredentialReferences({
+    names: ['FEISHU_APP_SECRET'],
+    allowedTargetPrefixes: (process.env.CREDENTIAL_TARGET_PREFIXES ?? 'FeishuAgent/')
+      .split(',')
+      .map((item) => item.trim())
+      .filter(Boolean),
+  });
   const config = loadFeishuGatewayConfig();
   const pipelineConfig = loadMessagePipelineConfig();
   const redis = createRedisClient(pipelineConfig.redisUrl);
@@ -16,6 +29,14 @@ async function main(): Promise<void> {
   }
 
   const idempotency = new RedisIdempotencyStore(redis);
+  const approvalCards = createSdkApprovalCardClient(config);
+  const approvalProcessor = new ApprovalCardActionProcessor({
+    decisions: createControlApiApprovalClient(),
+    cards: approvalCards,
+    idempotency,
+    leaseSeconds: pipelineConfig.eventLeaseSeconds,
+    completionTtlSeconds: pipelineConfig.eventDedupTtlSeconds,
+  });
   const processor = new FeishuMessageProcessor({
     config: pipelineConfig,
     idempotency,
@@ -35,11 +56,17 @@ async function main(): Promise<void> {
     onMessage: async (event) => {
       await processor.process(event);
     },
+    onCardAction: async (event) => {
+      const result = await approvalProcessor.process(event);
+      return result.card;
+    },
   });
   const readinessProbes = [{ name: 'redis', check: async () => (await redis.ping()) === 'PONG' }];
   const options = createFeishuGatewayOptions(connection, readinessProbes);
   const app = createFeishuGateway(connection, readinessProbes);
   app.get('/messages/status', () => processor.getSnapshot());
+  app.get('/approvals/status', () => approvalProcessor.getSnapshot());
+  registerApprovalDeliveryRoutes(app, approvalCards);
   app.addHook('onClose', async () => {
     if (redis.status === 'ready') {
       await redis.quit();
@@ -73,3 +100,4 @@ main().catch((error: unknown) => {
   console.error(error);
   process.exitCode = 1;
 });
+import { resolveEnvironmentCredentialReferences } from '@feishu-agent/credentials';

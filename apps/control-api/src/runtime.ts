@@ -1,10 +1,13 @@
 import { randomUUID } from 'node:crypto';
 
 import type { ExecutorExecutionResult, RouteRule } from '@feishu-agent/contracts';
-import { createDatabaseClient, TaskRepository } from '@feishu-agent/database';
+import { createDatabaseClient, GovernanceRepository, TaskRepository } from '@feishu-agent/database';
 
 import { createControlApi } from './app.js';
+import { createFeishuGatewayApprovalCardSender } from './approval-card-sender.js';
 import { ExecutorWorkerClient } from './executor-worker-client.js';
+import { readGovernanceConfig } from './governance-config.js';
+import { createGovernanceService } from './governance-service.js';
 import { createTaskCoordinator } from './task-coordinator.js';
 import { readTaskQueueConfig } from './task-queue-config.js';
 import {
@@ -47,6 +50,12 @@ export const defaultRouteRules: RouteRule[] = [
 export async function createControlApiRuntime() {
   const sql = createDatabaseClient();
   const repository = new TaskRepository(sql);
+  const governance = createGovernanceService(
+    new GovernanceRepository(sql),
+    readGovernanceConfig(),
+    createFeishuGatewayApprovalCardSender(),
+  );
+  await governance.initialize();
   await repository.saveRouteRules(defaultRouteRules);
   const rules = await repository.getActiveRouteRules();
   const queueConfig = readTaskQueueConfig();
@@ -140,6 +149,7 @@ export async function createControlApiRuntime() {
   });
   const app = createControlApi({
     coordinator,
+    governance,
     readinessProbes: [
       {
         name: 'postgres',

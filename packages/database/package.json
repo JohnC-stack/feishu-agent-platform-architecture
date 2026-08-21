@@ -14,7 +14,9 @@
     "migrate": "tsx --env-file-if-exists=../../.env src/migrate.ts",
     "verify:p2": "tsx --env-file-if-exists=../../.env src/verify-p2-persistence.ts",
     "verify:concurrency": "tsx --env-file-if-exists=../../.env src/verify-p2-concurrency.ts",
-    "verify:p3": "tsx --env-file-if-exists=../../.env src/verify-p3-persistence.ts"
+    "verify:p3": "tsx --env-file-if-exists=../../.env src/verify-p3-persistence.ts",
+    "verify:p5": "tsx --env-file-if-exists=../../.env src/verify-p5-governance.ts",
+    "verify:p5-live": "tsx --env-file-if-exists=../../.env src/verify-p5-live-approval.ts"
   },
   "dependencies": {
     "@feishu-agent/contracts": "workspace:*",
