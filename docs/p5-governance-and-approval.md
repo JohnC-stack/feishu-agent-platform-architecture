@@ -4,7 +4,7 @@
 
 P5 在 P4 只读工具之上增加统一治理层，包括 RBAC、写操作审批、幂等、预算、审计和凭据引用。未授权请求在进入 BullMQ 或企业系统前拒绝；高风险写操作在审批前保持 `pending_approval`，审批成功后由数据库原子声明保证最多执行一次。
 
-当前实现、本地/运行态验收和测试群真实审批卡片点击均已完成。飞书 WSS `card.action.trigger` 回传、重复投递去重、职责分离、数据库决策审计和共享卡片终态更新全部通过。代码尚未提交和推送；远端 CI 与 Security 成功后正式关闭 P5。
+当前实现、本地/运行态验收、测试群真实审批卡片点击及远端门禁均已完成。飞书 WSS `card.action.trigger` 回传、重复投递去重、职责分离、数据库决策审计和共享卡片终态更新全部通过。功能提交 `195dc3d`、门禁修复提交 `218379e` 的 CI/Security 验收完成，P5 已关闭。
 
 ## 角色与权限
 
@@ -123,3 +123,4 @@ pnpm audit --prod --audit-level high
 - 待审批卡和终态卡的北京时间格式 `yyyy-MM-dd HH:mm:ss` 已由自动化测试覆盖。
 - `pnpm check` 通过：37 个测试文件、106 个测试及全部构建成功。
 - `pnpm audit --prod --audit-level high` 无已知漏洞；`.env` 未跟踪且差异中未发现疑似明文凭据。
+- `218379e` 的远端 [CI](https://github.com/JohnC-stack/feishu-agent-platform-architecture/actions/runs/32456476006) 与 [Security](https://github.com/JohnC-stack/feishu-agent-platform-architecture/actions/runs/32456476059) 工作流均为 `success`，P5 于 2026-08-21 关闭。

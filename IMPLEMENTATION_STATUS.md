@@ -166,7 +166,9 @@ P4 的实现、契约测试、权限边界、三系统真实联调、运行态�
 - P4 三系统真实回归共 23 项全部通过，凭据迁移未造成 GitLab、Confluence 或飞书只读能力回退。
 - `pnpm check` 成功：37 个测试文件、106 个测试、格式、Lint、严格类型检查和全部生产构建通过。
 - `pnpm audit --prod --audit-level high` 返回 `No known vulnerabilities found`；`.env` 未被 Git 跟踪，当前差异未发现疑似明文凭据。
+- P5 功能提交为 `195dc3d`；门禁修复提交 `218379e` 补齐全新 Linux 环境下的 credentials 工作区源码解析，并消除两项纯测试值的密钥扫描误报。
+- `218379e` 的远端 [CI](https://github.com/JohnC-stack/feishu-agent-platform-architecture/actions/runs/32456476006) 与 [Security](https://github.com/JohnC-stack/feishu-agent-platform-architecture/actions/runs/32456476059) 工作流均为 `success`。
 
 ## P5 阶段出口
 
-P5 的实现、迁移、自动化测试、真实 PostgreSQL、Windows Credential Manager、企业系统回归、运行态 RBAC、真实飞书审批卡片点击、WSS 回调去重、共享卡片终态更新、审计和本地依赖安全门禁已全部通过。代码尚未获得提交和推送授权，远端 CI 与 Security 工作流尚未运行；两项远端门禁成功后才能正式关闭 P5，P6 尚未开始。
+P5 的实现、迁移、自动化测试、真实 PostgreSQL、Windows Credential Manager、企业系统回归、运行态 RBAC、真实飞书审批卡片点击、WSS 回调去重、共享卡片终态更新、审计、本地依赖安全门禁及远端 CI/Security 已全部通过。P5 于 2026-08-21 正式关闭；P6 尚未开始，等待明确启动指令。
