@@ -126,6 +126,9 @@ importers:
       '@feishu-agent/executors':
         specifier: workspace:*
         version: link:../../packages/executors
+      '@feishu-agent/integrations':
+        specifier: workspace:*
+        version: link:../../packages/integrations
       '@feishu-agent/observability':
         specifier: workspace:*
         version: link:../../packages/observability

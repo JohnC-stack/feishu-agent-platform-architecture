@@ -18,6 +18,13 @@ import {
 
 import { readWindowsWorkerRuntimeConfig } from './config.js';
 import { WindowsExecutionService } from './execution-service.js';
+import {
+  createEnterpriseIntegrationRuntime,
+  parseConfluenceCommand,
+  parseFeishuCommand,
+  parseGitLabCommand,
+  type EnterpriseIntegrationStatus,
+} from './integration-tools.js';
 
 export interface WindowsWorkerRuntime {
   executionService: WindowsExecutionService;
@@ -26,11 +33,13 @@ export interface WindowsWorkerRuntime {
     apiAgentConfigured: boolean;
     codexCliAvailable: boolean;
     hypervConfigured: boolean;
+    integrations: EnterpriseIntegrationStatus;
   };
 }
 
 export function createWindowsWorkerRuntime(): WindowsWorkerRuntime {
   const config = readWindowsWorkerRuntimeConfig();
+  const integrations = createEnterpriseIntegrationRuntime();
   const gateway = new ToolGateway([
     {
       name: 'platform.ping',
@@ -48,10 +57,18 @@ export function createWindowsWorkerRuntime(): WindowsWorkerRuntime {
       schema: z.object({}).strict(),
       execute: () => ({ status: 'ok', service: 'windows-worker' }),
     },
+    ...integrations.tools,
   ]);
   const directExecutor = new DirectToolExecutor(gateway, [
     { command: '/ping', toolName: 'platform.ping' },
     { command: '/health', toolName: 'platform.health' },
+    { command: '/gitlab', toolName: 'gitlab.read', parseArguments: parseGitLabCommand },
+    {
+      command: '/confluence',
+      toolName: 'confluence.read',
+      parseArguments: parseConfluenceCommand,
+    },
+    { command: '/feishu', toolName: 'feishu.read', parseArguments: parseFeishuCommand },
   ]);
   const apiExecutor: Executor = !config.apiAgentEnabled
     ? new UnavailableExecutor(
@@ -102,6 +119,7 @@ export function createWindowsWorkerRuntime(): WindowsWorkerRuntime {
           ? Boolean(config.codex.prefixArguments[0] && existsSync(config.codex.prefixArguments[0]))
           : true,
       hypervConfigured: false,
+      integrations: integrations.status,
     },
   };
 }

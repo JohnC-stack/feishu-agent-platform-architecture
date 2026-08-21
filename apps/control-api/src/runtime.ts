@@ -14,7 +14,16 @@ import {
   TaskTimeoutError,
 } from './task-queue.js';
 
-const defaultRouteRules: RouteRule[] = [
+export const defaultRouteRules: RouteRule[] = [
+  {
+    id: 'enterprise-read-direct',
+    version: 1,
+    priority: 110,
+    enabled: true,
+    condition: { commands: ['/gitlab', '/confluence', '/feishu'] },
+    executor: 'direct_tool',
+    description: 'Route approved enterprise reads to deterministic read-only tools.',
+  },
   {
     id: 'health-direct',
     version: 1,
@@ -174,7 +183,7 @@ function readBooleanFeatureFlag(value: string | undefined, fallback: boolean): b
   throw new Error('API_AGENT_ENABLED must be true or false.');
 }
 
-function approvedToolsFor(
+export function approvedToolsFor(
   task: Awaited<ReturnType<TaskRepository['getTaskExecutionRequest']>>,
 ): string[] {
   if (!task) {
@@ -186,6 +195,15 @@ function approvedToolsFor(
   const command = task.input.command ?? task.input.text.trim().split(/\s+/, 1)[0];
   if (command?.toLowerCase() === '/ping') {
     return ['platform.ping'];
+  }
+  if (command?.toLowerCase() === '/gitlab') {
+    return ['gitlab.read'];
+  }
+  if (command?.toLowerCase() === '/confluence') {
+    return ['confluence.read'];
+  }
+  if (command?.toLowerCase() === '/feishu') {
+    return ['feishu.read'];
   }
   return ['platform.health'];
 }

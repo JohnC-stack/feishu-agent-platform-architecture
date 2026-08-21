@@ -1,8 +1,8 @@
 # 飞书 Agent 平台实施状态
 
 - 更新日期：2026-08-21
-- 当前阶段：P3 已关闭；P4 尚未开始
-- 总体状态：P0、P1、P2、P3 已关闭；API/ReAct 按决策关闭，等待用户指令后才进入 P4
+- 当前阶段：P4 已关闭；等待开始 P5
+- 总体状态：P0、P1、P2、P3、P4 已关闭；GitLab、Confluence 和飞书三套企业只读链路均完成真实验收
 - 工作分支：`docs/hybrid-architecture-plan`
 
 ## P0 任务状态
@@ -111,4 +111,33 @@ P2 本地实现、自动化测试、真实 PostgreSQL/Redis、并发、重试、
 
 ## P3 阶段出口
 
-P3 代码、DirectTool、Agent CLI、数据库、队列、工作区、故障门禁以及 API 关闭门禁已通过本地验收。OpenAI API/ReAct 适配器保留但由 `API_AGENT_ENABLED=false` 强制关闭，不属于当前活动通道出口条件。功能提交 `4aa7fe0` 的远端 CI 与 Security 均为 `success`，P3 于 2026-08-21 关闭；P4 尚未开始。
+P3 代码、DirectTool、Agent CLI、数据库、队列、工作区、故障门禁以及 API 关闭门禁已通过本地验收。OpenAI API/ReAct 适配器保留但由 `API_AGENT_ENABLED=false` 强制关闭，不属于当前活动通道出口条件。功能提交 `4aa7fe0` 的远端 CI 与 Security 均为 `success`，P3 于 2026-08-21 关闭；随后按用户指令进入 P4。
+
+## P4 任务状态
+
+| 任务                     | 状态   | 当前证据                                                                                         |
+| ------------------------ | ------ | ------------------------------------------------------------------------------------------------ |
+| `P4-01` GitLab 只读      | 已完成 | 仅 `read_api` 令牌、11 个项目、MR、分页差异和流水线完成真实读取；批准项目外默认拒绝              |
+| `P4-02` Confluence 只读  | 已完成 | CQL、页面、附件元数据、评论真实读取成功；未批准页面在网络读取前拒绝                              |
+| `P4-03` 飞书只读         | 已完成 | 文档、多维表格、测试群和两名精确白名单用户均完成真实读取；全部结果未截断                         |
+| `P4-04` 统一接入安全策略 | 已完成 | 精确白名单、origin 锁定、有限退避、限流/超时分类、1 MB 响应上限、20,000 字符截断和凭据脱敏已实现 |
+| `P4-05` 模拟与契约测试   | 已完成 | GitLab、Confluence、飞书、HTTP 故障和 Worker/Control 路由均具备自动化测试                        |
+
+## P4 当前验收记录
+
+- P4 定向与全仓门禁：`pnpm check` 通过，31 个测试文件、86 个测试全部成功；格式、Lint、严格 TypeScript、全部构建通过，生产依赖审计无已知漏洞。
+- GitLab：GitLab 17.2.9 的个人访问令牌经自检确认仅含 `read_api`；额外 Scope 会以 `GITLAB_TOKEN_SCOPE_NOT_MINIMAL` 阻断所有项目读取。
+- GitLab：11 个精确白名单项目、MR 详情、分页差异和流水线详情真实读取成功；差异结果按 20,000 字符上限安全截断。
+- GitLab Job：11 个批准项目的 Job API 均返回 HTTP 200、数量 0；不为验收触发写操作，真实日志读取记为不适用，日志截断与 Token 脱敏契约测试通过。
+- Confluence：公司 VPN、DPAPI 保存凭据、个人测试空间的页面、附件元数据、评论、CQL 搜索均真实通过。
+- Worker 实机：Windows Worker 与 Control API 重启成功，`phase=P4`、readiness HTTP 200，GitLab、Confluence、飞书均显示已配置。
+- Worker 越权门禁：批准页面读取成功且不调用模型；未批准页面以不可重试的 `RESOURCE_NOT_APPROVED` 失败。
+- Control API 全链路：`/confluence` 与 `/gitlab project` 均经规则路由、BullMQ、Windows Worker 和 PostgreSQL 单次执行后成功，路由规则为 `enterprise-read-direct`，未调用模型。
+- 飞书：tenant token 鉴权成功；测试文档、多维表格、唯一测试群以及两名精确白名单用户共 5 次真实只读调用全部成功，结果未截断。
+- 飞书通讯录：同时使用 `contact:contact.base:readonly` 基础 API 权限和 `contact:user.base:readonly` 基本字段权限；未申请手机号、邮箱、员工编号等敏感字段权限。
+- 三系统统一验收：GitLab 15 项、Confluence 3 项、飞书 5 项，共 23 项真实检查全部通过。
+- 网络例外：公司 GitLab 当前仅提供内网 HTTP `192.168.27.20:8000`；P4 仅按开发环境验收，生产准入前必须升级 HTTPS 或置于可信 TLS 反向代理之后。
+
+## P4 阶段出口
+
+P4 的实现、契约测试、权限边界、三系统真实联调、运行态、全仓门禁和依赖审计已全部通过，于 2026-08-21 关闭。P5 尚未开始；GitLab TLS 改造作为生产准入项保留到 P8，不能在生产验收中豁免。
