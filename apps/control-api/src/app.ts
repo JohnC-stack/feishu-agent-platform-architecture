@@ -5,6 +5,9 @@ import { buildServiceApp, type ServiceOptions } from '@feishu-agent/observabilit
 import { BudgetExceededError, GovernanceConflictError } from '@feishu-agent/database';
 
 import { registerGovernanceRoutes } from './governance-routes.js';
+import { AdminAuthenticationError, registerAdminRoutes } from './admin-routes.js';
+import { AdminValidationError, type AdminService } from './admin-service.js';
+import type { FeishuOAuthService } from './feishu-oauth-service.js';
 import { GovernanceAuthorizationError, type GovernanceService } from './governance-service.js';
 import { registerTaskRoutes } from './routes.js';
 import type { TaskCoordinator } from './task-coordinator.js';
@@ -12,6 +15,8 @@ import type { TaskCoordinator } from './task-coordinator.js';
 export interface ControlApiDependencies {
   coordinator?: TaskCoordinator;
   governance?: GovernanceService;
+  admin?: AdminService;
+  feishuOAuth?: FeishuOAuthService;
   readinessProbes?: ServiceOptions['readinessProbes'];
   onClose?(): void | Promise<void>;
 }
@@ -24,8 +29,8 @@ export const controlApiOptions: ServiceOptions = {
   registerRoutes(app) {
     app.get('/', () => ({
       service: 'control-api',
-      phase: 'P5',
-      message: 'Governed scheduling, approval, budget, and audit API is running.',
+      phase: 'P6',
+      message: 'Governed scheduling, approval, observability, and operations API is running.',
     }));
   },
 };
@@ -41,6 +46,9 @@ export function createControlApi(dependencies: ControlApiDependencies = {}): Fas
       }
       if (dependencies.governance) {
         registerGovernanceRoutes(scope, dependencies.governance);
+      }
+      if (dependencies.admin) {
+        registerAdminRoutes(scope, dependencies.admin, dependencies.feishuOAuth);
       }
     },
   });
@@ -64,6 +72,9 @@ export function createControlApi(dependencies: ControlApiDependencies = {}): Fas
         })),
       });
     }
+    if (error instanceof AdminAuthenticationError) {
+      return reply.code(401).send({ error: error.code, message: error.message });
+    }
     if (error instanceof GovernanceAuthorizationError) {
       return reply.code(403).send({ error: error.code, message: error.message });
     }
@@ -76,6 +87,9 @@ export function createControlApi(dependencies: ControlApiDependencies = {}): Fas
     }
     if (error instanceof GovernanceConflictError) {
       return reply.code(409).send({ error: error.code, message: error.message });
+    }
+    if (error instanceof AdminValidationError) {
+      return reply.code(400).send({ error: 'invalid_admin_operation', message: error.message });
     }
     request.log.error({ error }, 'request failed');
     return reply.code(500).send({ error: 'internal_error' });

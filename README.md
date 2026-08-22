@@ -4,12 +4,12 @@
 
 ## 当前状态
 
-项目已经进入实施阶段。P0 工程基线、P1 飞书接入 PoC、P2 调度与数据、P3 执行器层、P4 企业系统只读接入和 P5 治理与审批均已完成本地、真实联调与远端门禁验收并关闭。已完成内容包括：
+项目已经进入实施阶段。P0 工程基线、P1 飞书接入 PoC、P2 调度与数据、P3 执行器层、P4 企业系统只读接入和 P5 治理与审批均已完成本地、真实联调与远端门禁验收并关闭。P6 管理台与运维已完成本地实现和运行态验收，等待界面视觉确认、提交推送及远端门禁。已完成内容包括：
 
 - pnpm/TypeScript 单体仓库、4 个应用和 7 个共享包。
 - 任务、执行器、风险和健康检查共享契约。
 - 任务状态机、统一 Executor Adapter 与首个 PostgreSQL migration。
-- Control API、Feishu Gateway、Windows Worker 健康服务和管理台骨架。
+- Control API、Feishu Gateway、Windows Worker 健康服务和 P6 完整管理台。
 - 单元测试、构建、GitHub Actions、依赖审计和密钥扫描。
 - WSL2、Docker Engine/Compose、PostgreSQL、Redis 和数据库 migration 实机验收。
 - DirectTool、Responses API/ReAct 和 Agent CLI 的统一事件、错误、取消、超时、回退与熔断实现。
@@ -21,6 +21,7 @@
 - GitLab 仅 `read_api` 令牌、11 个项目、MR、分页差异、流水线和 Control API 全链路真实验收。
 - P5 持久化 RBAC、职责分离、审批状态机、写操作幂等、分层预算、脱敏审计和 Windows Credential Manager 凭据引用。
 - Control API 到飞书网关的回环审批卡片发送，以及真实 WSS `card.action.trigger` 立即终态响应、异步更新兜底、单卡单终态和共享更新验收；终态保留原审批详情，状态中文化，时间使用北京时间 `yyyy-MM-dd HH:mm:ss`。
+- 管理台 14 个数据驱动页面、管理驾驶舱、角色管理和内置操作说明书；普通成员与超级管理员均只通过飞书 OAuth v3 + PKCE + HttpOnly 平台会话登录，服务端按角色过滤页面与数据。
 
 当前架构基线：
 
@@ -255,4 +256,4 @@ Windows 与 Linux VM 之间只开放必要内部端口，并使用 mTLS 或等�
 
 ## 下一步
 
-P0、P1、P2、P3、P4、P5 均已关闭。P5 治理、审批、预算、审计、Windows 凭据引用以及真实飞书审批卡片 WSS 全链路均已通过，功能提交和门禁修复提交的远端 CI/Security 验收成功。P6 尚未开始，等待明确启动指令；详见 [P5 治理与审批](docs/p5-governance-and-approval.md)。
+P0、P1、P2、P3、P4、P5 均已关闭。P6 管理台、运维聚合、Trace、告警、配置脱敏和受治理操作已完成主体实现；管理中心视觉与分级授权正在重新验收。当前停留在 P6，未进入 P7。详见 [P6 管理台与运维](docs/p6-admin-and-operations.md)、[P6 页面与交互规范](docs/p6-admin-ui-spec.md) 和 [P6 管理中心操作说明书](docs/p6-admin-operation-manual.md)。

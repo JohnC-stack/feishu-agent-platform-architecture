@@ -36,6 +36,8 @@ export interface GovernanceRepositoryPort {
     managedBy?: string,
   ): Promise<void>;
   getPolicySnapshot(): Promise<{ roles: GovernanceRole[]; bindings: GovernanceRoleBinding[] }>;
+  upsertRoleBinding(binding: GovernanceRoleBinding, managedBy: string): Promise<void>;
+  deleteRoleBinding(binding: GovernanceRoleBinding): Promise<'deleted' | 'protected' | 'not_found'>;
   upsertBudgetLimit(limit: BudgetLimit): Promise<void>;
   reserveBudget(input: {
     taskId: string;
@@ -126,6 +128,13 @@ export class GovernanceService {
     canDecideApprovals: boolean;
     canExportAudit: boolean;
     canManageBudgets: boolean;
+    canViewAdmin: boolean;
+    canOperateAdmin: boolean;
+    canManageAlerts: boolean;
+    canManageAccess: boolean;
+    canManageReleases: boolean;
+    canManageBackups: boolean;
+    canManageConfig: boolean;
   } {
     const policy = this.requirePolicy();
     return {
@@ -149,7 +158,128 @@ export class GovernanceService {
         groupIds: input.groupIds,
         action: 'budget.manage',
       }).allowed,
+      canViewAdmin: policy.authorizeAction({
+        userId: input.userId,
+        groupIds: input.groupIds,
+        action: 'admin.read',
+      }).allowed,
+      canOperateAdmin: policy.authorizeAction({
+        userId: input.userId,
+        groupIds: input.groupIds,
+        action: 'admin.operate',
+      }).allowed,
+      canManageAlerts: policy.authorizeAction({
+        userId: input.userId,
+        groupIds: input.groupIds,
+        action: 'alert.manage',
+      }).allowed,
+      canManageAccess: policy.authorizeAction({
+        userId: input.userId,
+        groupIds: input.groupIds,
+        action: 'access.manage',
+      }).allowed,
+      canManageReleases: policy.authorizeAction({
+        userId: input.userId,
+        groupIds: input.groupIds,
+        action: 'release.manage',
+      }).allowed,
+      canManageBackups: policy.authorizeAction({
+        userId: input.userId,
+        groupIds: input.groupIds,
+        action: 'backup.manage',
+      }).allowed,
+      canManageConfig: policy.authorizeAction({
+        userId: input.userId,
+        groupIds: input.groupIds,
+        action: 'config.manage',
+      }).allowed,
     };
+  }
+
+  public authorizeAdminRead(input: { userId: string; groupIds?: string[] }): string[] {
+    return this.authorizeGovernanceAction(input, 'admin.read', 'ADMIN_READ_NOT_AUTHORIZED');
+  }
+
+  public authorizeAdminOperation(input: { userId: string; groupIds?: string[] }): string[] {
+    return this.authorizeGovernanceAction(input, 'admin.operate', 'ADMIN_WRITE_NOT_AUTHORIZED');
+  }
+
+  public authorizeAlertManagement(input: { userId: string; groupIds?: string[] }): string[] {
+    return this.authorizeGovernanceAction(input, 'alert.manage', 'ALERT_MANAGE_NOT_AUTHORIZED');
+  }
+
+  public authorizeAccessManagement(input: { userId: string; groupIds?: string[] }): string[] {
+    return this.authorizeGovernanceAction(input, 'access.manage', 'ACCESS_MANAGE_NOT_AUTHORIZED');
+  }
+
+  public async upsertRoleBinding(
+    identity: { userId: string; groupIds?: string[] },
+    binding: GovernanceRoleBinding,
+  ): Promise<{ saved: true; roleIds: string[] }> {
+    const roleIds = this.authorizeAccessManagement(identity);
+    await this.repository.upsertRoleBinding(binding, 'admin-console');
+    await this.reloadPolicy();
+    await this.recordAdminAudit({
+      correlationId: randomUUID(),
+      actorId: identity.userId,
+      action: 'access.role_binding.upsert',
+      resourceType: 'governance_role_binding',
+      resourceId: `${binding.principalType}:${binding.principalId}:${binding.roleId}`,
+      outcome: 'succeeded',
+      details: { roleIds, principalType: binding.principalType, roleId: binding.roleId },
+    });
+    return { saved: true, roleIds };
+  }
+
+  public async deleteRoleBinding(
+    identity: { userId: string; groupIds?: string[] },
+    binding: GovernanceRoleBinding,
+  ): Promise<{ result: 'deleted' | 'protected' | 'not_found'; roleIds: string[] }> {
+    const roleIds = this.authorizeAccessManagement(identity);
+    if (
+      binding.principalType === 'user' &&
+      binding.principalId === identity.userId &&
+      binding.roleId === 'administrator'
+    ) {
+      throw new GovernanceAuthorizationError(
+        'SUPER_ADMIN_SELF_REMOVAL_BLOCKED',
+        '超级管理员不能在当前会话中移除自己的最高权限。',
+      );
+    }
+    const result = await this.repository.deleteRoleBinding(binding);
+    if (result === 'deleted') await this.reloadPolicy();
+    await this.recordAdminAudit({
+      correlationId: randomUUID(),
+      actorId: identity.userId,
+      action: 'access.role_binding.delete',
+      resourceType: 'governance_role_binding',
+      resourceId: `${binding.principalType}:${binding.principalId}:${binding.roleId}`,
+      outcome: result,
+      details: { roleIds, principalType: binding.principalType, roleId: binding.roleId },
+    });
+    return { result, roleIds };
+  }
+
+  public recordAdminAudit(input: {
+    correlationId: string;
+    actorId: string;
+    action: string;
+    resourceType: string;
+    resourceId?: string;
+    outcome: string;
+    details?: Record<string, unknown>;
+  }): Promise<void> {
+    return this.repository.appendAuditEvent({
+      correlationId: input.correlationId,
+      actorType: 'platform_user',
+      actorId: input.actorId,
+      action: input.action,
+      resourceType: input.resourceType,
+      ...(input.resourceId ? { resourceId: input.resourceId } : {}),
+      outcome: input.outcome,
+      ...(input.details ? { details: input.details } : {}),
+      retentionDays: this.config.auditRetentionDays,
+    });
   }
 
   public async authorizeTask(request: TaskRequest, chatType: RouteChatType): Promise<void> {
@@ -434,6 +564,30 @@ export class GovernanceService {
       throw new Error('Governance service must be initialized before use.');
     }
     return this.policy;
+  }
+
+  private async reloadPolicy(): Promise<void> {
+    const snapshot = await this.repository.getPolicySnapshot();
+    this.policy = new RbacPolicy(snapshot.roles, snapshot.bindings);
+  }
+
+  private authorizeGovernanceAction(
+    input: { userId: string; groupIds?: string[] },
+    action: 'admin.read' | 'admin.operate' | 'alert.manage' | 'access.manage',
+    code: string,
+  ): string[] {
+    const decision = this.requirePolicy().authorizeAction({
+      userId: input.userId,
+      groupIds: input.groupIds,
+      action,
+    });
+    if (!decision.allowed) {
+      throw new GovernanceAuthorizationError(
+        code,
+        'The requesting principal is not authorized for this administrative capability.',
+      );
+    }
+    return decision.roleIds;
   }
 }
 

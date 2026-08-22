@@ -1,11 +1,19 @@
 import { randomUUID } from 'node:crypto';
 
 import type { ExecutorExecutionResult, RouteRule } from '@feishu-agent/contracts';
-import { createDatabaseClient, GovernanceRepository, TaskRepository } from '@feishu-agent/database';
+import { resolveEnvironmentCredentialReferences } from '@feishu-agent/credentials';
+import {
+  AdminRepository,
+  createDatabaseClient,
+  GovernanceRepository,
+  TaskRepository,
+} from '@feishu-agent/database';
 
 import { createControlApi } from './app.js';
+import { AdminService, createAdminRuntime, readAdminThresholds } from './admin-service.js';
 import { createFeishuGatewayApprovalCardSender } from './approval-card-sender.js';
 import { ExecutorWorkerClient } from './executor-worker-client.js';
+import { FeishuOAuthService, readFeishuOAuthConfig } from './feishu-oauth-service.js';
 import { readGovernanceConfig } from './governance-config.js';
 import { createGovernanceService } from './governance-service.js';
 import { createTaskCoordinator } from './task-coordinator.js';
@@ -48,11 +56,20 @@ export const defaultRouteRules: RouteRule[] = [
 ];
 
 export async function createControlApiRuntime() {
+  const feishuOAuthEnabled = readBooleanFeatureFlag(
+    process.env.FEISHU_OAUTH_ENABLED,
+    false,
+    'FEISHU_OAUTH_ENABLED',
+  );
+  if (feishuOAuthEnabled) {
+    await resolveEnvironmentCredentialReferences({ names: ['FEISHU_APP_SECRET'] });
+  }
   const sql = createDatabaseClient();
   const repository = new TaskRepository(sql);
+  const governanceConfig = readGovernanceConfig();
   const governance = createGovernanceService(
     new GovernanceRepository(sql),
-    readGovernanceConfig(),
+    governanceConfig,
     createFeishuGatewayApprovalCardSender(),
   );
   await governance.initialize();
@@ -60,7 +77,11 @@ export async function createControlApiRuntime() {
   const rules = await repository.getActiveRouteRules();
   const queueConfig = readTaskQueueConfig();
   const queue = new TaskQueueRuntime(queueConfig);
-  const apiAgentEnabled = readBooleanFeatureFlag(process.env.API_AGENT_ENABLED, false);
+  const apiAgentEnabled = readBooleanFeatureFlag(
+    process.env.API_AGENT_ENABLED,
+    false,
+    'API_AGENT_ENABLED',
+  );
   const coordinator = createTaskCoordinator(
     repository,
     queue,
@@ -147,9 +168,34 @@ export async function createControlApiRuntime() {
     }
     throw new Error(message);
   });
+  const admin = new AdminService(
+    new AdminRepository(sql),
+    governance,
+    createAdminRuntime({ queue }),
+    coordinator,
+    readAdminThresholds(),
+    {
+      enabled: readBooleanFeatureFlag(
+        process.env.ADMIN_LOCAL_BOOTSTRAP_ENABLED,
+        false,
+        'ADMIN_LOCAL_BOOTSTRAP_ENABLED',
+      ),
+      manualIdentityEnabled: readBooleanFeatureFlag(
+        process.env.ADMIN_MANUAL_IDENTITY_ENABLED,
+        false,
+        'ADMIN_MANUAL_IDENTITY_ENABLED',
+      ),
+      actorId: governanceConfig.bindings.find(
+        (binding) => binding.principalType === 'user' && binding.roleId === 'administrator',
+      )?.principalId,
+    },
+  );
+  const feishuOAuth = new FeishuOAuthService(readFeishuOAuthConfig());
   const app = createControlApi({
     coordinator,
     governance,
+    admin,
+    feishuOAuth,
     readinessProbes: [
       {
         name: 'postgres',
@@ -179,7 +225,11 @@ export async function createControlApiRuntime() {
   return app;
 }
 
-function readBooleanFeatureFlag(value: string | undefined, fallback: boolean): boolean {
+function readBooleanFeatureFlag(
+  value: string | undefined,
+  fallback: boolean,
+  name: string,
+): boolean {
   if (value === undefined || value.trim() === '') {
     return fallback;
   }
@@ -190,7 +240,7 @@ function readBooleanFeatureFlag(value: string | undefined, fallback: boolean): b
   if (normalized === 'false') {
     return false;
   }
-  throw new Error('API_AGENT_ENABLED must be true or false.');
+  throw new Error(`${name} must be true or false.`);
 }
 
 export function approvedToolsFor(

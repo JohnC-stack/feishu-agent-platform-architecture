@@ -236,6 +236,13 @@ export const governanceActions = [
   'audit.export',
   'budget.manage',
   'credential.resolve',
+  'admin.read',
+  'admin.operate',
+  'alert.manage',
+  'release.manage',
+  'backup.manage',
+  'config.manage',
+  'access.manage',
 ] as const;
 export const GovernanceActionSchema = z.enum(governanceActions);
 export type GovernanceAction = z.infer<typeof GovernanceActionSchema>;

@@ -242,6 +242,55 @@ export class GovernanceRepository {
     };
   }
 
+  public async upsertRoleBinding(
+    bindingInput: GovernanceRoleBinding,
+    managedBy: string,
+  ): Promise<void> {
+    const binding = GovernanceRoleBindingSchema.parse(bindingInput);
+    await this.sql`
+      INSERT INTO governance_role_bindings (
+        principal_type,
+        principal_id,
+        role_id,
+        managed_by
+      ) VALUES (
+        ${binding.principalType},
+        ${binding.principalId},
+        ${binding.roleId},
+        ${managedBy}
+      )
+      ON CONFLICT (principal_type, principal_id, role_id) DO UPDATE SET
+        managed_by = CASE
+          WHEN governance_role_bindings.managed_by = 'bootstrap' THEN governance_role_bindings.managed_by
+          ELSE EXCLUDED.managed_by
+        END
+    `;
+  }
+
+  public async deleteRoleBinding(
+    bindingInput: GovernanceRoleBinding,
+  ): Promise<'deleted' | 'protected' | 'not_found'> {
+    const binding = GovernanceRoleBindingSchema.parse(bindingInput);
+    const deleted = await this.sql<Array<{ managed_by: string }>>`
+      DELETE FROM governance_role_bindings
+      WHERE principal_type = ${binding.principalType}
+        AND principal_id = ${binding.principalId}
+        AND role_id = ${binding.roleId}
+        AND managed_by <> 'bootstrap'
+      RETURNING managed_by
+    `;
+    if (deleted.length > 0) return 'deleted';
+    const existing = await this.sql<Array<{ managed_by: string }>>`
+      SELECT managed_by
+      FROM governance_role_bindings
+      WHERE principal_type = ${binding.principalType}
+        AND principal_id = ${binding.principalId}
+        AND role_id = ${binding.roleId}
+      LIMIT 1
+    `;
+    return existing[0]?.managed_by === 'bootstrap' ? 'protected' : 'not_found';
+  }
+
   public async createGovernedOperation(
     input: GovernedOperationRequest,
   ): Promise<{ operation: GovernedOperationRecord; approval?: ApprovalRecord; created: boolean }> {

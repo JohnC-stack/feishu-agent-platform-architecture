@@ -72,6 +72,32 @@ class MemoryGovernanceRepository implements GovernanceRepositoryPort {
     return Promise.resolve({ roles: this.roles, bindings: this.bindings });
   }
 
+  public upsertRoleBinding(binding: GovernanceRoleBinding): Promise<void> {
+    const key = `${binding.principalType}:${binding.principalId}:${binding.roleId}`;
+    this.bindings = [
+      ...this.bindings.filter(
+        (item) => `${item.principalType}:${item.principalId}:${item.roleId}` !== key,
+      ),
+      binding,
+    ];
+    return Promise.resolve();
+  }
+
+  public deleteRoleBinding(
+    binding: GovernanceRoleBinding,
+  ): Promise<'deleted' | 'protected' | 'not_found'> {
+    const before = this.bindings.length;
+    this.bindings = this.bindings.filter(
+      (item) =>
+        !(
+          item.principalType === binding.principalType &&
+          item.principalId === binding.principalId &&
+          item.roleId === binding.roleId
+        ),
+    );
+    return Promise.resolve(this.bindings.length < before ? 'deleted' : 'not_found');
+  }
+
   public upsertBudgetLimit(limit: BudgetLimit): Promise<void> {
     this.limits.push(limit);
     return Promise.resolve();
@@ -191,6 +217,26 @@ describe('P5 governance service', () => {
     ).rejects.toBeInstanceOf(GovernanceAuthorizationError);
     expect(repository.reservations).toBe(0);
     expect(repository.audits).toHaveLength(1);
+  });
+
+  it('allows configured members into the console and lets a super administrator manage bindings', async () => {
+    const repository = new MemoryGovernanceRepository();
+    const governance = new GovernanceService(repository, config);
+    await governance.initialize();
+
+    expect(governance.authorizeAdminRead({ userId: 'reader-1' })).toEqual(['reader']);
+    await governance.upsertRoleBinding(
+      { userId: 'admin-1' },
+      { principalType: 'user', principalId: 'reader-2', roleId: 'reader' },
+    );
+    expect(governance.authorizeAdminRead({ userId: 'reader-2' })).toEqual(['reader']);
+
+    const removed = await governance.deleteRoleBinding(
+      { userId: 'admin-2' },
+      { principalType: 'user', principalId: 'reader-2', roleId: 'reader' },
+    );
+    expect(removed.result).toBe('deleted');
+    expect(governance.capabilities({ userId: 'reader-2' }).canViewAdmin).toBe(false);
   });
 
   it('authorizes a scoped read and reserves user, group, and task budgets', async () => {

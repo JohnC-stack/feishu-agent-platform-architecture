@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { buildServiceApp } from './index.js';
 
@@ -41,5 +41,35 @@ describe('service health protocol', () => {
       status: 'degraded',
       checks: [{ name: 'database', ok: false }],
     });
+  });
+
+  it('redacts callback query strings from automatic request logs', async () => {
+    const writes: string[] = [];
+    const writeSpy = vi.spyOn(process.stdout, 'write').mockImplementation((chunk) => {
+      writes.push(String(chunk));
+      return true;
+    });
+    const app = buildServiceApp({
+      service: 'test-service',
+      version: '0.1.0',
+      host: '127.0.0.1',
+      port: 0,
+    });
+    apps.push(app);
+
+    try {
+      await app.inject({
+        method: 'GET',
+        url: '/health/live?code=one-time-code&state=oauth-state',
+      });
+      await new Promise((resolve) => setImmediate(resolve));
+    } finally {
+      writeSpy.mockRestore();
+    }
+
+    const output = writes.join('');
+    expect(output).not.toContain('one-time-code');
+    expect(output).not.toContain('oauth-state');
+    expect(output).toContain('[REDACTED]');
   });
 });

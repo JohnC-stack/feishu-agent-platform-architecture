@@ -22,6 +22,7 @@ export function buildServiceApp(options: ServiceOptions): FastifyInstance {
       level: process.env.LOG_LEVEL ?? 'info',
       redact: {
         paths: [
+          'req.url',
           'req.headers.authorization',
           'req.headers.cookie',
           'headers.authorization',

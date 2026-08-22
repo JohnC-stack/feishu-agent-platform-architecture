@@ -11,13 +11,16 @@
     "verify:recovery": "tsx --env-file-if-exists=../../.env src/verify-worker-recovery.ts",
     "verify:coordinator": "tsx --env-file-if-exists=../../.env src/verify-task-coordinator.ts",
     "verify:p3": "tsx --env-file-if-exists=../../.env src/verify-executor-pipeline.ts",
+    "verify:p6": "tsx --env-file-if-exists=../../.env src/verify-p6-admin.ts",
     "verify:agent-pipeline": "tsx --env-file-if-exists=../../.env src/verify-agent-pipeline.ts",
     "verify:api-pipeline": "tsx --env-file-if-exists=../../.env src/verify-api-pipeline.ts"
   },
   "dependencies": {
     "@feishu-agent/contracts": "workspace:*",
+    "@feishu-agent/credentials": "workspace:*",
     "@feishu-agent/database": "workspace:*",
     "@feishu-agent/executors": "workspace:*",
+    "@feishu-agent/integrations": "workspace:*",
     "@feishu-agent/observability": "workspace:*",
     "@feishu-agent/policy": "workspace:*",
     "bullmq": "6.1.2",
