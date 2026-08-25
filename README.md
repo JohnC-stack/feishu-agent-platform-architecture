@@ -1,259 +1,418 @@
-# 飞书 Agent 平台架构方案
+# 飞书 Agent 平台
 
-本仓库记录一套面向企业内网的飞书 Agent 平台设计。用户在飞书群聊或私聊中与机器人交互，平台按任务特征选择确定性工具、可选 API/ReAct 或本地 Agent CLI，并统一治理身份、权限、审批、Token 成本和执行审计。API/ReAct 通道当前关闭。
+[![CI](https://github.com/JohnC-stack/feishu-agent-platform-architecture/actions/workflows/ci.yml/badge.svg?branch=docs%2Fhybrid-architecture-plan)](https://github.com/JohnC-stack/feishu-agent-platform-architecture/actions/workflows/ci.yml?query=branch%3Adocs%2Fhybrid-architecture-plan)
+[![Security](https://github.com/JohnC-stack/feishu-agent-platform-architecture/actions/workflows/security.yml/badge.svg?branch=docs%2Fhybrid-architecture-plan)](https://github.com/JohnC-stack/feishu-agent-platform-architecture/actions/workflows/security.yml?query=branch%3Adocs%2Fhybrid-architecture-plan)
 
-## 当前状态
+面向企业内网的飞书 Agent 管理与执行平台。它把飞书消息接入、确定性工具、Agent CLI、企业系统、RBAC、审批、审计、管理中心、监控告警、发布回滚和备份恢复整合到同一条可治理链路中。
 
-项目已经进入实施阶段。P0 工程基线、P1 飞书接入 PoC、P2 调度与数据、P3 执行器层、P4 企业系统只读接入、P5 治理与审批以及 P6 管理台与运维均已完成本地、真实联调、页面人工验收与远端门禁并关闭。已完成内容包括：
+> **当前状态：P0–P7 已完成并关闭，P8 尚未开始。** 2026-08-26 的实机验收版本为 `0.7.0-p7rc1`。OpenAI API/ReAct 通道保留实现但固定设置为 `API_AGENT_ENABLED=false`，不参与活动路由、回退或 readiness。
 
-- pnpm/TypeScript 单体仓库、4 个应用和 7 个共享包。
-- 任务、执行器、风险和健康检查共享契约。
-- 任务状态机、统一 Executor Adapter 与首个 PostgreSQL migration。
-- Control API、Feishu Gateway、Windows Worker 健康服务和 P6 完整管理台。
-- 单元测试、构建、GitHub Actions、依赖审计和密钥扫描。
-- WSL2、Docker Engine/Compose、PostgreSQL、Redis 和数据库 migration 实机验收。
-- DirectTool、Responses API/ReAct 和 Agent CLI 的统一事件、错误、取消、超时、回退与熔断实现。
-- Codex CLI JSONL、会话续接、授权工作区、Windows ACL、任务清理和执行审计。
-- 企业接入共享白名单、有限重试、限流分类、响应上限和敏感信息脱敏。
-- GitLab、Confluence、飞书只读适配器及 `/gitlab`、`/confluence`、`/feishu` 零模型命令。
-- Confluence CQL、页面、附件元数据、评论和越权拒绝的本机真实全链路验收。
-- 飞书新版文档、多维表格、测试群和精确白名单用户的真实只读验收。
-- GitLab 仅 `read_api` 令牌、11 个项目、MR、分页差异、流水线和 Control API 全链路真实验收。
-- P5 持久化 RBAC、职责分离、审批状态机、写操作幂等、分层预算、脱敏审计和 Windows Credential Manager 凭据引用。
-- Control API 到飞书网关的回环审批卡片发送，以及真实 WSS `card.action.trigger` 立即终态响应、异步更新兜底、单卡单终态和共享更新验收；终态保留原审批详情，状态中文化，时间使用北京时间 `yyyy-MM-dd HH:mm:ss`。
-- 管理台 14 个数据驱动页面、管理驾驶舱、角色管理和内置操作说明书；普通成员与超级管理员均只通过飞书 OAuth 2.0（v1 授权入口 + v2 Token 交换）+ PKCE + HttpOnly 平台会话登录，服务端按角色过滤页面与数据。
+## 项目定位
 
-当前架构基线：
+平台解决的不是单一“聊天机器人”问题，而是企业内部 Agent 的完整运行与治理问题：
 
-- 飞书使用 WSS 443 长连接，Windows 服务器不开放公网入站端口。
-- 明确命令优先直接调用 REST API 或 CLI，不经过模型。
-- API/ReAct 轻量智能层由独立开关控制，当前关闭；未匹配任务不会进入该通道。
-- 代码、本地文件和重型任务进入 Codex 或其他 Agent CLI。
-- 采用 Windows 原生执行面 + Hyper-V Linux VM / Docker 控制面。
-- 管理台、审批、审计、可观测性、告警、备份和回滚属于正式交付范围。
+- 飞书私聊、群聊 `@机器人` 和卡片交互统一接入；
+- 明确命令优先走零模型 Token 的确定性工具；
+- 代码、本地文件和重型任务进入受控 Agent CLI；
+- GitLab、Confluence、飞书文档和多维表格按精确白名单读取；
+- 写操作经过 RBAC、风险分级、职责分离、审批和幂等保护；
+- 管理人员通过飞书 OAuth 登录可视化管理中心；
+- Windows 执行面与 Linux 控制面通过内部 mTLS 协作；
+- 任务、队列、执行器、审批、告警、发布和恢复均可追踪、可审计、可回滚。
 
-详细开发顺序、20 周排期和阶段验收条件见 [IMPLEMENTATION_PLAN.md](IMPLEMENTATION_PLAN.md)，逐项执行证据见 [IMPLEMENTATION_STATUS.md](IMPLEMENTATION_STATUS.md)，本地启动步骤见 [docs/development.md](docs/development.md)。
+## 当前里程碑
 
-## 设计目标
+| 阶段 | 状态   | 已交付内容                                                 |
+| ---- | ------ | ---------------------------------------------------------- |
+| P0   | 已关闭 | 单体仓库、共享契约、PostgreSQL/Redis、CI 与安全门禁        |
+| P1   | 已关闭 | 飞书 WSS 接入、事件去重、限流、幂等回复和真实消息验收      |
+| P2   | 已关闭 | 任务状态机、BullMQ、规则路由、会话隔离和持久化             |
+| P3   | 已关闭 | DirectTool、Agent CLI、API Agent 适配器和执行安全边界      |
+| P4   | 已关闭 | GitLab、Confluence、飞书只读接入和企业资源白名单           |
+| P5   | 已关闭 | RBAC、飞书审批卡、写操作幂等、预算、审计和凭据引用         |
+| P6   | 已关闭 | 14 页管理中心、飞书 OAuth、角色管理、告警和运维操作        |
+| P7   | 已关闭 | Windows Service、Linux VM 控制面、mTLS、发布回滚和备份恢复 |
+| P8   | 未开始 | 压测、安全测试、故障演练、企业 CA、UAT 和生产准入          |
 
-- 支持多用户、多群聊并发使用。
-- Windows 服务器可访问互联网和公司内网，但不接受公网主动访问。
-- 明确命令绕过模型，降低延迟和 Token 成本。
-- 使用三类执行器覆盖确定性任务、轻量智能任务和重型本地任务。
-- GitLab、Confluence、飞书和业务系统通过受控 REST、CLI 或 MCP 接入。
-- 写操作必须经过权限校验、风险分级、审批和幂等保护。
-- 提供完整管理台和运维能力，确保任务可追踪、故障可定位、系统可恢复。
-- 通过统一 Executor Adapter 保持模型、CLI 和工具实现可替换。
+完整任务与验收条件见 [实施计划](IMPLEMENTATION_PLAN.md)，逐阶段实测证据见 [实施状态](IMPLEMENTATION_STATUS.md)。
+
+## 已验收运行基线
+
+| 项目           | 当前实机状态                                                                                                                                                                                                                 |
+| -------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 活动版本       | `0.7.0-p7rc1`                                                                                                                                                                                                                |
+| Windows 执行面 | Gateway、Worker 均为 `LocalService / Automatic / Running`                                                                                                                                                                    |
+| Linux 控制面   | Ubuntu 24.04.4 Hyper-V VM，地址 `192.168.100.10`                                                                                                                                                                             |
+| 容器           | PostgreSQL、Redis、Control API、Edge、Prometheus、Grafana 共 6 个                                                                                                                                                            |
+| 内部服务身份   | Gateway、Worker、Control API 三条 mTLS 通道已通过正向与无证书拒绝测试                                                                                                                                                        |
+| 监控           | Control API、Gateway、Worker 三个 Prometheus 目标均为 `up`                                                                                                                                                                   |
+| 重启恢复       | Windows 整机重启后的服务、VM、systemd、容器、防火墙和任务链路 15/15 通过                                                                                                                                                     |
+| 发布演练       | Linux 与 Windows 均完成 `p7rc1 → p7rc2 → p7rc1` 升级、健康检查和回滚                                                                                                                                                         |
+| 恢复演练       | 加密备份、逐文件哈希、5 条 migration、Redis `PONG` 和独立项目恢复全部通过                                                                                                                                                    |
+| 自动化质量门禁 | 41 个测试文件、138 个测试、Lint、严格类型检查和全部生产构建通过                                                                                                                                                              |
+| 远端门禁       | P7 [CI](https://github.com/JohnC-stack/feishu-agent-platform-architecture/actions/runs/32875385999) 与 [Security](https://github.com/JohnC-stack/feishu-agent-platform-architecture/actions/runs/32875385943) 均为 `success` |
+
+P7 的实机验收主机是 Windows 11 Pro 25H2。目标生产环境仍应使用公司批准的 Windows Server、企业 CA 和服务账号安全基线。
 
 ## 网络拓扑
 
-![网络拓扑](diagrams/network-topology-v3.png)
+![飞书 Agent 平台网络拓扑](diagrams/network-topology-v3.png)
 
-矢量版本：[network-topology-v3.svg](diagrams/network-topology-v3.svg)
+- 当前矢量图：[network-topology-v3.svg](diagrams/network-topology-v3.svg)
+- 历史版本：[network-topology-v2.svg](diagrams/network-topology-v2.svg)
 
-### 部署与网络原则
+核心网络原则：
 
-1. Windows 原生 Feishu Gateway 主动建立 WSS 443 长连接。
-2. 飞书事件沿已建立连接推送，不配置公网回调地址。
-3. 消息回复通过飞书 OpenAPI 的主动 HTTPS 443 请求完成。
-4. 管理台只允许公司内网或 VPN 用户访问。
-5. Windows 原生执行面直接使用本机工作区、Windows 凭据、VPN、Git 和 Agent CLI。
-6. Hyper-V Linux VM 中运行 Web、API、Redis、PostgreSQL、可观测性和 API/ReAct 执行器。
-7. Windows Server 生产环境不使用 Docker Desktop。
-8. 普通 Agent 任务使用最小权限工作区；高风险任务进入 Hyper-V 强隔离环境。
-9. GitLab、Confluence 和业务系统只接受服务账号和白名单访问。
-10. 当前公司 GitLab 内网地址为 HTTP `192.168.27.20:8000`，仅用于开发验收；生产前必须启用 HTTPS 或可信 TLS 反向代理。
-11. PostgreSQL、配置和审计数据进行加密备份，并定期验证恢复。
+1. Feishu Gateway 主动建立 WSS 443 长连接，不配置公网事件回调入口。
+2. 飞书事件沿已建立连接进入，回复通过飞书 OpenAPI 的出站 HTTPS 443 发送。
+3. Windows 原生服务直接使用 Windows 凭据、VPN、Git、本机工作区和 Agent CLI。
+4. Web、Control API、Redis、PostgreSQL 和可观测性运行在 Hyper-V Linux VM 中。
+5. Windows 与 Linux VM 之间只开放精确来源、精确端口，并强制内部 TLS/mTLS。
+6. PostgreSQL、Control API、Prometheus 和 Grafana 不直接暴露宿主端口。
+7. 管理中心只允许公司内网或 VPN 访问，不向公网开放。
+8. Docker Desktop 仅用于本地开发，不是生产运行依赖。
 
-历史版本：[network-topology-v2.svg](diagrams/network-topology-v2.svg)
+### 内部端口边界
+
+| 目标            | 端口     | 允许来源         | 用途                          |
+| --------------- | -------- | ---------------- | ----------------------------- |
+| Linux VM        | 22/TCP   | `192.168.100.1`  | SSH 运维                      |
+| Linux VM        | 443/TCP  | `192.168.100.1`  | 管理台、API、Control mTLS     |
+| Linux VM        | 6379/TCP | `192.168.100.1`  | Gateway 到 Redis 的 TLS 连接  |
+| Windows Gateway | 3100/TCP | `192.168.100.10` | mTLS 健康检查与指标           |
+| Windows Worker  | 3200/TCP | `192.168.100.10` | mTLS 任务执行、健康检查与指标 |
+
+不得把来源扩大为 `Any`，不得增加公网端口转发。
 
 ## 技术架构
 
-![技术架构](diagrams/technical-architecture-v2.png)
+![飞书 Agent 平台技术架构](diagrams/technical-architecture-v2.png)
 
-矢量版本：[technical-architecture-v2.svg](diagrams/technical-architecture-v2.svg)
+- 当前矢量图：[technical-architecture-v2.svg](diagrams/technical-architecture-v2.svg)
+- 历史版本：[technical-architecture-v1.svg](diagrams/technical-architecture-v1.svg)
 
-历史版本：[technical-architecture-v1.svg](diagrams/technical-architecture-v1.svg)
+### 一条任务的完整链路
 
-### 1. 消息接入层
+```text
+飞书 WSS 事件
+  → Feishu Gateway：验签、解析、去重、限流、回复目标
+  → Control API：身份、RBAC、风险、预算、幂等、规则路由
+  → PostgreSQL + BullMQ：任务、会话、attempt、审计、调度
+  → Windows Worker：DirectTool / Agent CLI / 已关闭的 API Agent
+  → 企业系统或本地工作区
+  → 执行事件、结果、告警和审计回写
+  → 飞书文本、卡片或管理中心展示
+```
 
-- 飞书官方 Node SDK 建立 WSS 长连接。
-- 完成事件验签、解析、去重、限流和幂等控制。
-- 只处理私聊、`@机器人`、卡片交互和明确配置的命令。
-- 统一处理文本、卡片、附件、超长消息分片和流式状态更新。
-- 所有回复经过回复调度器，执行器不能自行决定回复目标。
+### 核心应用
 
-### 2. 调度与控制层
+| 应用             | 职责                                                               |
+| ---------------- | ------------------------------------------------------------------ |
+| `admin-web`      | React 管理中心、飞书登录、运行管理、安全治理、平台运维和操作说明书 |
+| `control-api`    | 任务入口、路由、队列协调、RBAC、审批、预算、审计和管理 API         |
+| `feishu-gateway` | 飞书 WSS、事件去重、回复调度、审批卡片和卡片回调                   |
+| `windows-worker` | 企业只读工具、DirectTool、Agent CLI、工作区和 Windows 本机能力     |
 
-- Redis + BullMQ 负责异步任务、削峰、并发控制、超时、重试和死信队列。
-- 规则任务路由器是普通程序，先于模型运行。
-- 会话上下文按群、用户和任务隔离。
-- 策略中心负责 RBAC、Token 配额、写操作确认、幂等和审计。
-- 路由决策、规则版本、审批记录和最终执行器都进入审计链路。
+### 共享包
 
-### 3. 任务执行层
+| 包              | 职责                                                  |
+| --------------- | ----------------------------------------------------- |
+| `contracts`     | 任务、执行器、风险、审批、健康和传输契约              |
+| `credentials`   | Windows Credential Manager 与企业密钥提供方抽象       |
+| `database`      | PostgreSQL migration、存储和阶段验收脚本              |
+| `executors`     | DirectTool、Agent CLI、API Agent 适配器与统一执行事件 |
+| `integrations`  | GitLab、Confluence、飞书只读适配器和安全 HTTP 策略    |
+| `observability` | 健康、指标、Trace、日志脱敏和错误分类                 |
+| `policy`        | 工具白名单、资源范围、工作区和执行策略                |
+| `testing`       | 测试基础设施与共享断言                                |
+| `transport`     | Windows/Linux 跨主机 mTLS 传输和证书身份校验          |
 
-平台通过统一 `Executor Adapter` 调度三类执行器：
+## 执行器与路由
 
-#### DirectToolExecutor
+平台先运行普通规则程序，再决定是否调用模型：
 
-- 处理明确命令、固定查询和确定性写操作。
-- 调用 REST API、`glab`、`lark-cli` 或公司专用 CLI。
-- 不调用模型，模型 Token 为 0。
-- 所有工具都经过白名单、参数校验、权限和幂等保护。
+| 场景                                  | 执行器                           | 模型 Token |
+| ------------------------------------- | -------------------------------- | ---------: |
+| `/gitlab`、`/confluence`、`/feishu`   | `DirectToolExecutor`             |          0 |
+| `/ping`、健康检查、固定报表和明确查询 | `DirectToolExecutor`             |          0 |
+| 代码分析、修改、测试和本地文件任务    | `AgentCliExecutor`               | 按任务产生 |
+| 自然语言跨系统组合与摘要              | `ApiAgentExecutor`，当前强制关闭 | 按任务产生 |
 
-#### ApiAgentExecutor
+所有执行器使用统一的 run、correlation ID、attempt、事件、取消、超时、错误和审计协议。写操作无论由哪个执行器执行，都必须经过治理层。
 
-- 当前设置 `API_AGENT_ENABLED=false`，不参与活动路由、回退和 readiness；实现保留供后续重新评审启用。
-- 处理自然语言跨系统组合、摘要和只读分析任务。
-- 采用 Responses API/ReAct/Function Calling 风格。
-- 每个任务只加载必要工具，限制上下文、返回结果和重试次数。
-- 默认不操作本地代码仓，不执行高风险主机命令。
+### DirectToolExecutor
 
-#### AgentCliExecutor
+- 处理确定性命令、固定查询和经过批准的写操作；
+- 不调用模型，模型 Token 为 0；
+- 工具调用必须命中白名单、参数 Schema、资源范围和幂等规则；
+- 返回内容经过大小限制、截断和递归脱敏。
 
-- 处理代码分析、修改、测试、本地文件和重型复杂任务。
-- 第一阶段使用 Codex CLI，后续可增加其他 Agent CLI Adapter。
-- 通过 JSONL 事件、会话续接、工作区绑定、超时和取消接入平台。
-- 只能访问授权目录和命令；高风险任务使用 Hyper-V 强隔离。
+### AgentCliExecutor
 
-### 4. 工具与模型接入层
+- 当前接入 Codex CLI JSONL 事件和会话续接；
+- 工作区必须位于授权根目录，并经过真实路径和 Windows ACL 复核；
+- 支持超时、取消、输出上限、工作区释放和任务后清理；
+- 高风险或不可信任务必须使用强隔离环境，普通容器不是唯一安全边界。
 
-- 受控工具网关负责工具白名单、参数校验、读写隔离、幂等和结果截断。
-- MCP Client Manager 按任务加载 GitLab、Confluence 或飞书 MCP。
-- 模型策略配置 API/CLI、模型映射、成本优先级、配额、回退和熔断。
-- 工具结果在进入模型前进行限长、摘要和敏感信息脱敏。
-- 外部系统超时、限流和故障采用退避重试、熔断和降级策略。
+### ApiAgentExecutor
 
-### 5. 管理、运维与数据层
+- Responses API/ReAct/Function Calling 风格的适配实现已保留；
+- 当前 `API_AGENT_ENABLED=false`，不出现在活动执行器列表和 readiness 中；
+- 未匹配任务不会静默进入 API Agent；显式请求会以不可重试错误拒绝；
+- 后续只有经过安全、成本和数据边界重新评审后才能启用。
 
-- Web 管理台：配置、任务、会话、队列、Worker、执行器和系统集成。
-- 治理页面：用户、群组、角色、权限、审批、配额和审计。
-- 可观测性：Logs、Metrics、Trace、错误率、耗时、Token 和成本。
-- 运维操作：取消、重试、死信处理、健康检查、告警和依赖状态。
-- 发布治理：版本、数据库 migration、升级、灰度、回滚和恢复演练。
-- 数据设施：Redis、PostgreSQL、加密卷、备份和企业备份系统。
+## 企业系统接入
 
-## 路由原则
+P4 当前只开放读取能力，写入、评论、合并、创建和删除不属于只读接入范围。
 
-| 场景                                 | 推荐执行器                     | 模型 Token |
-| ------------------------------------ | ------------------------------ | ---------: |
-| `/gitlab mr 123`、固定页面查询       | `DirectToolExecutor`           |          0 |
-| 固定规则生成报表、明确写操作         | `DirectToolExecutor`           |          0 |
-| “汇总本周 GitLab 和 Confluence 风险” | `ApiAgentExecutor`（当前关闭） | 按任务产生 |
-| 自然语言选择多个只读工具             | `ApiAgentExecutor`（当前关闭） | 按任务产生 |
-| 代码分析、修改和测试                 | `AgentCliExecutor`             | 按任务产生 |
-| 本地文件、CLI 和重型复杂任务         | `AgentCliExecutor`             | 按任务产生 |
+| 系统       | 已实现读取能力                         | 边界                                               |
+| ---------- | -------------------------------------- | -------------------------------------------------- |
+| GitLab     | 项目、MR、分页差异、流水线、Job 日志   | 仅 `read_api`，11 个批准项目，精确项目白名单       |
+| Confluence | CQL 搜索、页面、附件元数据、评论       | 空间和页面双重白名单，复用 VPN 与受保护 CLI 凭据   |
+| 飞书       | 新版文档、多维表格、群组、用户基本信息 | 应用权限、资源协作者权限、数据范围和本机白名单并用 |
 
-写操作无论由哪个执行器完成，都必须先经过权限和审批中心。API、CLI 和 MCP 本身不是 Token 计费单位，成本主要来自模型输入上下文、工具描述、工具返回内容、模型输出和失败重试。
+确定性命令示例：
+
+```text
+/gitlab project <project-path>
+/gitlab mr <project-path> <mr-iid>
+/confluence page <space-key> <page-id>
+/feishu document <document-id>
+/feishu bitable <app-token>
+/feishu chat <chat-id>
+/feishu user <open-id-or-user-id>
+```
+
+空白名单一律拒绝，不会退化为“允许全部”。当前公司 GitLab 的内网 HTTP 链路只属于开发验收例外；生产前必须升级为 HTTPS 或置于可信 TLS 反向代理之后。
+
+## 治理、审批与审计
+
+### 角色
+
+| 角色            | 主要能力                                                 |
+| --------------- | -------------------------------------------------------- |
+| `reader`        | 查看运行状态，调用批准范围内的只读工具                   |
+| `operator`      | 申请执行受治理的 Agent CLI 和运维操作                    |
+| `approver`      | 批准、拒绝和撤销审批，但不能审批自己的申请               |
+| `auditor`       | 查看和导出递归脱敏后的审计事件                           |
+| `administrator` | 管理角色、告警、运维和治理能力，仍受审批、幂等与审计约束 |
+
+角色可绑定用户或群组。未知身份默认可见工具为 0，隐藏菜单不是权限边界，所有 API 都会再次执行服务端授权。
+
+### 高风险写操作
+
+1. 校验请求人角色、工具和资源范围；
+2. 以规范化载荷哈希和幂等键创建受治理操作；
+3. 向飞书群发送审批卡片；
+4. 审批人通过 WSS 卡片回调批准或拒绝；
+5. Control API 校验审批角色、职责分离和状态机；
+6. 飞书立即返回移除按钮的中文终态卡，并异步更新原消息兜底；
+7. 只有 `approved` 操作可以原子声明执行，重复声明不会重复写入。
+
+待审批与终态卡的过期时间统一使用北京时间 `yyyy-MM-dd HH:mm:ss`。审批卡保留工具、资源、风险、申请人和过期时间，并追加中文审批状态、操作状态和审批人。
+
+### 预算与凭据
+
+- Token/成本限制同时覆盖用户每日、群组每日、单任务和模型每日；
+- 预算在入队前通过 PostgreSQL 原子预留，任一层级超限均拒绝任务；
+- 飞书 App Secret 和 GitLab Token 使用 Windows Credential Manager 引用；
+- `.env`、数据库、管理 API、日志和管理页面都不得返回明文凭据；
+- Gitleaks、生产依赖审计和递归脱敏属于持续质量门禁。
+
+## 管理中心
+
+管理中心由 5 个分组、14 个页面组成：
+
+| 分组     | 页面                                              |
+| -------- | ------------------------------------------------- |
+| 总览     | 管理驾驶舱                                        |
+| 运行管理 | 任务与会话、队列与 Worker、执行器与沙箱、系统集成 |
+| 安全治理 | 审批中心、用户与权限、Token 与成本、日志与 Trace  |
+| 平台运维 | 告警中心、配置中心、发布与备份、运维操作          |
+| 帮助     | 操作说明书                                        |
+
+正式登录只使用飞书 OAuth 2.0：
+
+- 授权入口与 Token 交换按飞书协议版本正确配对；
+- 使用单次 `state`、S256 PKCE 和服务端用户信息读取；
+- 飞书 Token 用完即丢弃，浏览器只接收平台 `HttpOnly + SameSite=Lax` 会话；
+- 普通成员入口和超级管理员入口共用安全回调；
+- 超级管理员入口不会提权，只接受已经绑定 `administrator` 的飞书用户；
+- 本机 Bootstrap 和手工 Open ID 登录在正式运行配置中关闭。
+
+本地入口：
+
+- 普通成员：<http://127.0.0.1:5173/#overview>
+- 超级管理员：<http://127.0.0.1:5173/#super-admin-login>
+- OAuth 回调：<http://127.0.0.1:5173/v1/admin/auth/feishu/callback>
+
+页面、交互和接口详见 [管理中心规范](docs/p6-admin-ui-spec.md)，日常使用详见 [管理中心操作说明书](docs/p6-admin-operation-manual.md)。
 
 ## 混合部署
 
-| 部署位置                  | 组件                                                               | 原因                                             |
-| ------------------------- | ------------------------------------------------------------------ | ------------------------------------------------ |
-| Windows 原生服务          | Feishu Gateway、DirectTool、Agent CLI、工作区和沙箱代理            | 直接使用 Windows 凭据、VPN、路径、Git 和本地 CLI |
-| Hyper-V Linux VM / Docker | Web、Control API、Redis、PostgreSQL、API Agent、Logs/Metrics/Trace | 便于依赖隔离、升级、备份和迁移                   |
-| Hyper-V 强隔离环境        | 高风险或不可信任务                                                 | 提供强于普通进程容器的隔离边界                   |
+| 部署位置                  | 组件                                                           | 目的                                            |
+| ------------------------- | -------------------------------------------------------------- | ----------------------------------------------- |
+| Windows 原生服务          | Feishu Gateway、Windows Worker、Agent CLI、工作区              | 直接使用 Windows 凭据、VPN、Git、路径和本机 CLI |
+| Hyper-V Linux VM / Docker | Edge、Web、Control API、Redis、PostgreSQL、Prometheus、Grafana | 隔离依赖，统一升级、备份、监控和迁移            |
+| Hyper-V 强隔离环境        | 高风险或不可信任务                                             | 提供强于普通进程或普通容器的隔离边界            |
 
-Windows 与 Linux VM 之间只开放必要内部端口，并使用 mTLS 或等效服务身份。生产 Web 管理台不暴露到公网。
+### 当前实机目录
 
-## 管理台功能
+```text
+D:\FeishuAgent\program      # Windows 不可变发布包、current 联接和服务包装器
+D:\FeishuAgent\data         # 配置、证书、日志、状态和任务数据
+D:\FeishuAgent\backups      # Windows 迁移与升级前备份
+D:\Hyper-V                   # VM 配置、VHDX 和检查点
+/opt/feishu-agent            # Linux 控制面程序、配置和部署资产
+```
 
-- 平台总览和服务健康状态。
-- 任务、会话、路由决策和执行时间线。
-- 队列、Worker、并发、重试和死信管理。
-- 执行器、工作区、沙箱和资源状态。
-- GitLab、Confluence、飞书、模型和业务系统状态。
-- 审批、用户、角色、资源权限和配额。
-- Token、成本、日志、Trace、告警和故障分析。
-- 配置、功能开关、路由规则和脱敏凭据状态。
-- 备份、恢复、版本、发布和回滚。
+Windows 发布包通过 SHA256 清单校验，使用目录联接原子切换版本；Linux 发布依次执行配置校验、镜像构建、数据库 migration、无队列消费金丝雀、健康检查和活动版本切换。数据库 migration 必须向后兼容，回滚不依赖自动降级 SQL。
 
-管理台不得展示明文密钥、Cookie、访问令牌或敏感业务数据。
+生产部署与日常运维入口：
 
-## Token 成本控制
+- [Windows 执行面部署](deploy/windows/README.md)
+- [Linux 控制面部署](deploy/docker/README.md)
+- [P7 混合部署运维手册](docs/p7-hybrid-deployment-operation-manual.md)
+- [备份、恢复与演练](deploy/backup/README.md)
 
-- 明确命令和固定查询绕过模型。
-- 群聊只响应 `@机器人`、私聊和指定命令。
-- ApiAgent 只用于需要自然语言理解的跨系统任务，且必须显式启用；当前关闭。
-- Agent CLI 只用于代码、本地文件和重型任务。
-- 只传入最近消息、会话摘要和必要检索片段。
-- 对 Git diff、流水线日志和文档内容先过滤、再摘要。
-- 每个任务只加载所需 MCP Server 和工具。
-- 限制工具返回、模型输出、重试、最大轮次和执行时间。
-- 按用户、群、任务、执行器和模型记录 Token 与成本。
+## 本地开发
 
-## 安全要求
+### 前置条件
 
-- 公网入站全部关闭，只允许必要的出站 WSS/HTTPS；现有 GitLab 内网 HTTP 是限时开发例外，不是生产基线。
-- 管理台仅允许公司内网或 VPN 访问。
-- 飞书、GitLab、Confluence 和业务系统使用独立服务账号与最小权限。
-- 读取工具和写入工具分离。
-- 合并 MR、修改生产文档和高风险命令必须二次确认。
-- 凭据保存在 Windows Credential Manager 或企业密钥系统中。
-- Agent 工作目录隔离，限制可访问仓库、路径、命令和网络目标。
-- 记录消息事件、路由、模型调用、工具调用、审批、成本和管理操作。
-- 普通容器不作为不可信 Agent 任务的唯一安全边界。
+- Windows 11 或 Windows Server 2022；
+- Node.js 22–24；
+- pnpm 10–11，项目验证版本为 11.19.0；
+- Docker Engine 或 Docker Desktop，仅用于本地 PostgreSQL/Redis；
+- Git；
+- Agent CLI 任务需要安装 Codex CLI 并完成本机安全登录。
 
-## 建议技术栈
+### 首次启动
 
-- Windows Server 2022
-- Hyper-V + Linux VM
-- Node.js + TypeScript
-- React + TypeScript 管理台
-- 飞书官方 Node SDK
-- Redis + BullMQ
-- PostgreSQL；本地开发可使用临时数据库
-- OpenTelemetry + Prometheus/Grafana 兼容指标链路
-- Codex CLI；后续可增加其他 Agent CLI Adapter
-- Responses API 或兼容 API/ReAct 执行器
-- `glab`、飞书 OpenAPI、GitLab REST、Confluence REST
-- GitLab、Atlassian、飞书 MCP，按需启用
-- WinSW 或等效 Windows Service 托管
-- Docker Compose，仅用于 Linux VM 控制面
+```powershell
+Copy-Item .env.example .env
+pnpm install
+pnpm dev:infra
+pnpm db:migrate
+pnpm check
+pnpm dev
+```
 
-## 实施计划摘要
+`.env` 已被 Git 忽略，只允许保存本地配置或受保护凭据引用，不得提交真实 Secret。
 
-| 阶段 |        周期 | 交付                                     |
-| ---- | ----------: | ---------------------------------------- |
-| P0   |     第 1 周 | 本地与远端全量验收通过，阶段已关闭       |
-| P1   |   第 2–3 周 | 飞书 WSS 收发 PoC，阶段已关闭            |
-| P2   |   第 4–5 周 | 队列、路由、会话和数据库，阶段已关闭     |
-| P3   |   第 6–8 周 | 执行器、沙箱和 API 关闭门禁，阶段已关闭  |
-| P4   |  第 9–10 周 | GitLab、Confluence、飞书只读接入，已关闭 |
-| P5   | 第 11–13 周 | RBAC、审批、配额和审计，阶段已关闭       |
-| P6   | 第 14–16 周 | 完整管理台和运维中心                     |
-| P7   | 第 17–18 周 | 混合部署、备份和回滚                     |
-| P8   | 第 19–20 周 | 压测、安全测试、UAT 和生产验收           |
+### 本地地址
 
-完整任务、验收标准、测试策略、风险和后续启动顺序见 [IMPLEMENTATION_PLAN.md](IMPLEMENTATION_PLAN.md)。
+| 组件                    | 地址                    |
+| ----------------------- | ----------------------- |
+| 管理中心                | <http://127.0.0.1:5173> |
+| Control API             | <http://127.0.0.1:3000> |
+| Feishu Gateway 健康服务 | <http://127.0.0.1:3100> |
+| Windows Worker 健康服务 | <http://127.0.0.1:3200> |
+
+动态服务均提供 `/health/live` 和 `/health/ready`。完整环境准备、飞书配置和专项验收命令见 [本地开发指南](docs/development.md)。
+
+### 常用命令
+
+```powershell
+pnpm format
+pnpm lint
+pnpm typecheck
+pnpm test
+pnpm build
+pnpm check
+pnpm audit --prod --audit-level high
+pnpm dev:infra:down
+```
+
+阶段验收要求使用 `pnpm install --frozen-lockfile` 和 `pnpm check`，不得因为 Docker、数据库、VPN 或企业系统不可用而把未执行的真实联调标记为通过。
+
+## 质量与验收
+
+当前 P7 关闭门禁包括：
+
+- Prettier、ESLint、严格 TypeScript、41 个测试文件、138 个测试和完整生产构建；
+- PowerShell 5.1 与 PowerShell 7 的 Windows 部署资产兼容性；
+- Linux Shell 语法、Compose 边界、UFW 和端口发布检查；
+- `pnpm audit --prod --audit-level high` 无已知漏洞；
+- Gitleaks 对可提交源码、部署资产、文档和 Git 历史扫描通过；
+- 飞书 WSS、OAuth、审批卡、GitLab、Confluence、飞书资源和 Agent CLI 的真实联调；
+- Windows 重启后 15 项自动恢复与新的 `/ping` 全链路任务；
+- Linux/Windows 双侧升级、健康检查、回滚和回滚后任务；
+- 加密备份、逐文件哈希与独立项目恢复演练；
+- GitHub Actions CI 与 Security 工作流。
+
+自动化契约测试不能替代真实企业系统、浏览器、重启、证书和恢复演练。每个阶段只有在对应真实门禁也通过后才能关闭。
+
+## 安全边界
+
+- 生产环境不开放公网入站端口；
+- 管理中心只允许公司内网或 VPN 访问，并使用 HTTPS；
+- Windows/Linux 内部调用使用 mTLS 和精确防火墙来源；
+- 企业系统使用独立服务账号、最小权限和精确资源白名单；
+- 读写工具分离，高风险写操作必须审批；
+- Agent 只能访问授权工作区、命令和网络目标；
+- Secret 不进入 Git、聊天、日志、数据库返回或管理页面；
+- 审计记录覆盖消息、路由、预算、工具、审批、执行器和管理写操作；
+- 普通容器不能作为不可信 Agent 的唯一隔离边界。
+
+P7 实机使用受保护的测试 PKI。它只用于阶段验收，不是最终生产证书基线。
 
 ## 仓库结构
 
 ```text
 .
-├── .github/workflows
+├── .github/workflows       # CI 与 Security
 ├── apps
-│   ├── admin-web
-│   ├── control-api
-│   ├── feishu-gateway
-│   └── windows-worker
+│   ├── admin-web           # React 管理中心
+│   ├── control-api         # 任务、治理和管理 API
+│   ├── feishu-gateway      # 飞书 WSS 与回复/审批卡
+│   └── windows-worker      # 工具、Agent CLI 与 Windows 执行面
 ├── packages
-│   ├── contracts
-│   ├── database
-│   ├── executors
-│   ├── integrations
-│   ├── observability
-│   ├── policy
-│   └── testing
+│   ├── contracts           # 共享契约
+│   ├── credentials         # 凭据提供方
+│   ├── database            # PostgreSQL 与 migration
+│   ├── executors           # 执行器适配器
+│   ├── integrations        # 企业系统只读接入
+│   ├── observability       # 健康、指标、Trace 与脱敏
+│   ├── policy              # 工具、资源和工作区策略
+│   ├── testing             # 测试支持
+│   └── transport           # 跨主机 mTLS 传输
 ├── deploy
-├── docs
-├── README.md
-├── IMPLEMENTATION_PLAN.md
-├── IMPLEMENTATION_STATUS.md
-└── diagrams
+│   ├── backup              # 加密备份、恢复和演练
+│   ├── docker              # Linux VM 生产控制面
+│   └── windows             # Windows Service、Hyper-V 与发布脚本
+├── diagrams                # 网络与技术架构图
+├── docs                    # ADR、开发、治理、管理和运维文档
+├── IMPLEMENTATION_PLAN.md  # 完整实施计划
+├── IMPLEMENTATION_STATUS.md # 实际验收记录
+└── README.md
 ```
 
-## 下一步
+## 文档导航
 
-P0、P1、P2、P3、P4、P5、P6、P7 均已关闭。P7 已完成 Windows 原生服务、Hyper-V Linux Docker 控制面、内部 mTLS、最小端口、迁移/金丝雀/回滚、加密备份/独立恢复以及 Windows 整机重启后的 15 项自动恢复和端到端验收。P8 尚未开始，等待明确启动指令。详见 [实施状态](IMPLEMENTATION_STATUS.md)、[P7 混合部署运维手册](docs/p7-hybrid-deployment-operation-manual.md)、[Windows 执行面部署](deploy/windows/README.md) 和 [Linux 控制面部署](deploy/docker/README.md)。
+| 文档                                                         | 内容                                                   |
+| ------------------------------------------------------------ | ------------------------------------------------------ |
+| [实施计划](IMPLEMENTATION_PLAN.md)                           | P0–P8 任务、阶段门禁、测试策略、风险与排期             |
+| [实施状态](IMPLEMENTATION_STATUS.md)                         | 每个阶段的真实运行、页面、CI 和安全验收证据            |
+| [本地开发指南](docs/development.md)                          | Windows 环境准备、启动、端口、配置和专项验证           |
+| [企业系统接入](docs/p4-enterprise-integrations.md)           | GitLab、Confluence、飞书只读权限和白名单               |
+| [治理与审批](docs/p5-governance-and-approval.md)             | RBAC、审批、幂等、预算、审计和凭据                     |
+| [管理台与运维](docs/p6-admin-and-operations.md)              | 管理 API、告警、Trace、OAuth 和运维操作                |
+| [管理中心页面规范](docs/p6-admin-ui-spec.md)                 | 14 个页面的原型、状态、交互和接口                      |
+| [管理中心操作说明书](docs/p6-admin-operation-manual.md)      | 登录、角色、日检、告警、运维和审计流程                 |
+| [P7 运维手册](docs/p7-hybrid-deployment-operation-manual.md) | 正式拓扑、健康、启停、发布、回滚和故障定位             |
+| [架构决策记录](docs/adr/0001-monorepo-and-runtime.md)        | 单体仓库与运行时边界；同目录还包含执行器和混合部署 ADR |
+
+## P8 生产准入事项
+
+P8 尚未启动。在进入生产试运行前，至少需要完成：
+
+1. 使用企业 CA 替换 P7 测试 PKI，并完成证书轮换和吊销演练；
+2. 由安全团队确认 `LocalService` 是否切换为专用域服务账号及最小 ACL；
+3. 把 GitLab 开发 HTTP 例外升级为 HTTPS 或可信 TLS 反向代理；
+4. 完成并发、峰值、长稳和容量压测；
+5. 完成 Prompt 注入、越权、工作区逃逸、凭据泄漏和依赖攻击测试；
+6. 完成网络中断、依赖超时、进程崩溃、主机重启和数据库恢复故障演练；
+7. 完成试点用户 UAT、运维交接、监控阈值确认和生产准入评审；
+8. 保持 API/ReAct 通道关闭，除非收到明确启用指令并完成独立安全与成本评审。
+
+P8 的任务、出口标准和风险清单以 [实施计划](IMPLEMENTATION_PLAN.md) 为准。
