@@ -225,6 +225,7 @@ P6 的底层迁移、真实 PostgreSQL/Redis、三服务运行态、飞书真实
 - 正式 443 入口的 `/ping` 在重启前后各完成一次 Control API → PostgreSQL → BullMQ → Windows Worker → PostgreSQL 全链路；两次均使用 `health-direct/direct_tool`，输出 `pong`，每次持久化 1 次 attempt、4 条执行事件和 3 条审计事件。
 - 2026-08-26 Windows 整机重启后，VM 自动启动策略、两个 Windows 服务、systemd、6 个容器、UFW、端口边界、4 个 HTTPS 入口、3 个 Prometheus 目标、mTLS 正反检查、Docker Desktop 零依赖和重启后端到端任务共 15 项全部通过。
 - 正式升级/回滚演练使用 `0.7.0-p7rc2`：Linux 完成镜像构建、migration、无队列消费金丝雀、活动切换和回滚，升级版与回滚版各提交一条真实 `/ping` 并返回 `pong`；Windows 完成 10,703 项发布复制与校验、Gateway/Worker 双服务升级健康和回滚健康，mTLS 证书指纹保持不变。最终活动版本恢复为 `0.7.0-p7rc1`，回滚后新任务 `56f67ee2-0e7d-4cb6-9013-339cf6321d0e` 成功，综合验收再次为 15/15。
+- P7 功能提交为 `6d4109d`；远端 [CI](https://github.com/JohnC-stack/feishu-agent-platform-architecture/actions/runs/32875385999) 与 [Security](https://github.com/JohnC-stack/feishu-agent-platform-architecture/actions/runs/32875385943) 均为 `success`。
 - P7 实机验收使用受保护的 P7 测试 PKI；进入 P8 生产试运行前必须换发企业 CA 证书，并由安全团队确认是否将 `LocalService` 切换为专用域服务账号。`API_AGENT_ENABLED=false` 保持不变。
 
 ## P7 阶段出口
