@@ -82,7 +82,7 @@
 
   <!-- Windows host / native execution plane -->
   <rect x="980" y="255" width="940" height="480" rx="16" class="native"/>
-  <text x="1005" y="293" class="section-title">Windows 原生执行面</text><text x="1260" y="293" class="zone-sub">Windows Service · Credential Manager / VPN / 工作区 / CLI</text>
+  <text x="1005" y="293" class="section-title">Windows 原生执行面</text><text x="1260" y="293" class="zone-sub">宿主 192.168.100.1 · Windows Service / VPN / 工作区 / CLI</text>
 
   <rect x="1015" y="335" width="250" height="120" rx="12" class="green-node"/>
   <circle cx="1055" cy="385" r="22" fill="#059669"/><path d="M1044 386A11 11 0 0 1 1066 386M1038 386A17 17 0 0 1 1072 386" fill="none" stroke="#FFF" stroke-width="3"/>
@@ -108,7 +108,7 @@
 
   <!-- Hyper-V Linux VM / Docker control plane -->
   <rect x="980" y="775" width="940" height="525" rx="16" class="vm"/>
-  <text x="1005" y="813" class="section-title">Hyper-V Linux VM · Docker 控制面</text><text x="1370" y="813" class="zone-sub">内部网络，不直接暴露公网</text>
+  <text x="1005" y="813" class="section-title">Hyper-V Linux VM · Docker 控制面</text><text x="1370" y="813" class="zone-sub">192.168.100.10 · HTTPS 443 / Redis TLS 6379 · 不暴露公网</text>
 
   <rect x="1015" y="855" width="250" height="125" rx="12" class="blue-node"/>
   <circle cx="1055" cy="907" r="22" fill="#2563EB"/><path d="M1044 897H1066V913H1055L1049 920V913H1044Z" fill="none" stroke="#FFF" stroke-width="2.5"/>
@@ -138,7 +138,7 @@
 
   <!-- Plane connection -->
   <path d="M1435 660V745H1435V855" class="gray"/>
-  <rect x="1455" y="728" width="165" height="30" rx="6" class="plate"/><text x="1537" y="748" text-anchor="middle" class="label">内部 mTLS / 队列</text>
+  <rect x="1280" y="728" width="310" height="30" rx="6" class="plate"/><text x="1435" y="748" text-anchor="middle" class="label">mTLS 3100/3200 · Redis TLS 6379</text>
 
   <!-- Feishu and model outbound paths -->
   <path d="M1015 375H910H755" class="green"/><rect x="735" y="330" width="158" height="30" rx="6" class="plate"/><text x="814" y="350" text-anchor="middle" class="label">主动建立 WSS 443</text>
@@ -147,7 +147,7 @@
   <path d="M1310 600H930V1010H710" class="purple dash"/>
 
   <!-- Admin internal path -->
-  <path d="M305 732H350V1345H1100V980" class="blue"/><rect x="480" y="1324" width="190" height="30" rx="6" class="plate"/><text x="575" y="1344" text-anchor="middle" class="label">公司内网 / VPN HTTPS</text>
+  <path d="M305 732H350V1345H1100V980" class="blue"/><rect x="480" y="1324" width="190" height="30" rx="6" class="plate"/><text x="575" y="1344" text-anchor="middle" class="label">公司内网 / VPN HTTPS 443</text>
 
   <!-- Enterprise systems -->
   <rect x="2025" y="290" width="280" height="125" rx="14" class="orange-node"/>

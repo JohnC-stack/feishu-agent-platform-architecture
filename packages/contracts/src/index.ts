@@ -373,7 +373,7 @@ export type BudgetUsage = z.infer<typeof BudgetUsageSchema>;
 export const CredentialReferenceSchema = z
   .object({
     name: z.string().min(1).max(100),
-    provider: z.enum(['windows_credential_manager', 'enterprise_secret_manager']),
+    provider: z.enum(['windows_credential_manager', 'file_secret', 'enterprise_secret_manager']),
     target: z.string().min(1).max(500),
   })
   .strict();

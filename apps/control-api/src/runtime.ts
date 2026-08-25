@@ -61,9 +61,14 @@ export async function createControlApiRuntime() {
     false,
     'FEISHU_OAUTH_ENABLED',
   );
-  if (feishuOAuthEnabled) {
-    await resolveEnvironmentCredentialReferences({ names: ['FEISHU_APP_SECRET'] });
-  }
+  await resolveEnvironmentCredentialReferences({
+    names: ['DATABASE_URL', 'REDIS_URL', ...(feishuOAuthEnabled ? ['FEISHU_APP_SECRET'] : [])],
+    allowedTargetPrefixes: splitEnvironmentList(
+      process.env.CREDENTIAL_TARGET_PREFIXES ?? 'FeishuAgent/',
+    ),
+    allowedFileRoots: splitEnvironmentList(process.env.CREDENTIAL_FILE_ROOTS),
+    enforceFilePermissions: process.env.CREDENTIAL_FILE_ENFORCE_POSIX_PERMISSIONS !== 'false',
+  });
   const sql = createDatabaseClient();
   const repository = new TaskRepository(sql);
   const governanceConfig = readGovernanceConfig();
@@ -89,85 +94,92 @@ export async function createControlApiRuntime() {
     apiAgentEnabled ? 'api_agent' : 'agent_cli',
   );
   const workerClient = new ExecutorWorkerClient();
-  const recovery = await coordinator.recoverPending();
-  await coordinator.startWorker(async (data, context) => {
-    const task = await repository.getTaskExecutionRequest(data.taskId);
-    if (!task) {
-      throw new TaskNonRetryableError(`Task execution payload not found: ${data.taskId}`);
-    }
-    const conversation = await repository.getConversationContext({
-      channel: task.source.channel,
-      chatId: task.source.chatId,
-      userId: task.source.userId,
-    });
-    const executionTask = {
-      ...task,
-      metadata: {
-        ...task.metadata,
-        ...(conversation ? { conversationContext: formatConversationContext(conversation) } : {}),
-      },
-    };
-    const workspacePath = readMetadataString(task.metadata, 'workspacePath');
-    const previousSessionId = readMetadataString(task.metadata, 'previousSessionId');
-    const started = await repository.beginExecutorRun({
-      runId: randomUUID(),
-      taskId: task.id,
-      attempt: context.attempt,
-      requestedExecutor: data.executor,
-      ...(workspacePath ? { workspacePath } : {}),
-      ...(workspacePath
-        ? {
-            sandboxKind: ['high', 'critical'].includes(task.riskLevel)
-              ? 'hyperv'
-              : 'local_workspace',
-          }
-        : {}),
-    });
-    let result: ExecutorExecutionResult;
-    try {
-      result = await workerClient.execute(
-        {
-          task: executionTask,
-          executor: data.executor,
-          runId: started.runId,
-          attempt: context.attempt,
-          approvedToolNames: approvedToolsFor(task),
-          ...(workspacePath ? { workspacePath } : {}),
-          ...(previousSessionId ? { previousSessionId } : {}),
-        },
-        context.signal,
-      );
-    } catch (error: unknown) {
-      const message = error instanceof Error ? error.message : String(error);
-      await repository.failExecutorRun({
-        runId: started.runId,
-        code: 'WINDOWS_WORKER_REQUEST_FAILED',
-        message,
-        retryable: true,
+  const canaryMode = readBooleanFeatureFlag(
+    process.env.CONTROL_API_CANARY,
+    false,
+    'CONTROL_API_CANARY',
+  );
+  const recovery = canaryMode ? { scanned: 0, enqueued: 0 } : await coordinator.recoverPending();
+  if (!canaryMode) {
+    await coordinator.startWorker(async (data, context) => {
+      const task = await repository.getTaskExecutionRequest(data.taskId);
+      if (!task) {
+        throw new TaskNonRetryableError(`Task execution payload not found: ${data.taskId}`);
+      }
+      const conversation = await repository.getConversationContext({
+        channel: task.source.channel,
+        chatId: task.source.chatId,
+        userId: task.source.userId,
       });
-      throw error;
-    }
-    await repository.appendExecutorEvents(result.events);
-    await repository.finishExecutorRun(result);
-    if (result.status === 'succeeded') {
-      return {
-        status: 'succeeded',
-        completedAt: new Date().toISOString(),
-        outputReference: `executor-run:${result.runId}`,
+      const executionTask = {
+        ...task,
+        metadata: {
+          ...task.metadata,
+          ...(conversation ? { conversationContext: formatConversationContext(conversation) } : {}),
+        },
       };
-    }
-    if (result.status === 'cancelled') {
-      throw new TaskCancelledError(task.id);
-    }
-    if (result.status === 'expired') {
-      throw new TaskTimeoutError(queueConfig.timeoutMs);
-    }
-    const message = result.failure?.message ?? `Executor run failed: ${result.runId}`;
-    if (result.failure && !result.failure.retryable) {
-      throw new TaskNonRetryableError(message);
-    }
-    throw new Error(message);
-  });
+      const workspacePath = readMetadataString(task.metadata, 'workspacePath');
+      const previousSessionId = readMetadataString(task.metadata, 'previousSessionId');
+      const started = await repository.beginExecutorRun({
+        runId: randomUUID(),
+        taskId: task.id,
+        attempt: context.attempt,
+        requestedExecutor: data.executor,
+        ...(workspacePath ? { workspacePath } : {}),
+        ...(workspacePath
+          ? {
+              sandboxKind: ['high', 'critical'].includes(task.riskLevel)
+                ? 'hyperv'
+                : 'local_workspace',
+            }
+          : {}),
+      });
+      let result: ExecutorExecutionResult;
+      try {
+        result = await workerClient.execute(
+          {
+            task: executionTask,
+            executor: data.executor,
+            runId: started.runId,
+            attempt: context.attempt,
+            approvedToolNames: approvedToolsFor(task),
+            ...(workspacePath ? { workspacePath } : {}),
+            ...(previousSessionId ? { previousSessionId } : {}),
+          },
+          context.signal,
+        );
+      } catch (error: unknown) {
+        const message = error instanceof Error ? error.message : String(error);
+        await repository.failExecutorRun({
+          runId: started.runId,
+          code: 'WINDOWS_WORKER_REQUEST_FAILED',
+          message,
+          retryable: true,
+        });
+        throw error;
+      }
+      await repository.appendExecutorEvents(result.events);
+      await repository.finishExecutorRun(result);
+      if (result.status === 'succeeded') {
+        return {
+          status: 'succeeded',
+          completedAt: new Date().toISOString(),
+          outputReference: `executor-run:${result.runId}`,
+        };
+      }
+      if (result.status === 'cancelled') {
+        throw new TaskCancelledError(task.id);
+      }
+      if (result.status === 'expired') {
+        throw new TaskTimeoutError(queueConfig.timeoutMs);
+      }
+      const message = result.failure?.message ?? `Executor run failed: ${result.runId}`;
+      if (result.failure && !result.failure.retryable) {
+        throw new TaskNonRetryableError(message);
+      }
+      throw new Error(message);
+    });
+  }
   const admin = new AdminService(
     new AdminRepository(sql),
     governance,
@@ -221,8 +233,20 @@ export async function createControlApiRuntime() {
       await sql.end();
     },
   });
-  app.log.info(recovery, 'task queue recovery completed');
+  app.log.info(
+    { ...recovery, canaryMode },
+    canaryMode
+      ? 'control API canary initialized without queue consumption'
+      : 'task queue recovery completed',
+  );
   return app;
+}
+
+function splitEnvironmentList(value: string | undefined): string[] {
+  return (value ?? '')
+    .split(',')
+    .map((item) => item.trim())
+    .filter(Boolean);
 }
 
 function readBooleanFeatureFlag(

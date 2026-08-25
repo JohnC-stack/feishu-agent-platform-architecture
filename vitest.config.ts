@@ -13,6 +13,7 @@ export default defineConfig({
       '@feishu-agent/observability': workspaceSource('observability'),
       '@feishu-agent/policy': workspaceSource('policy'),
       '@feishu-agent/testing': workspaceSource('testing'),
+      '@feishu-agent/transport': workspaceSource('transport'),
     },
   },
   test: {

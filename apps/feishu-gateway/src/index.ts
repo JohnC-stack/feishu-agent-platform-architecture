@@ -14,11 +14,16 @@ import { createRedisClient, RedisIdempotencyStore, RedisRateLimiter } from './st
 
 async function main(): Promise<void> {
   await resolveEnvironmentCredentialReferences({
-    names: ['FEISHU_APP_SECRET'],
+    names: ['FEISHU_APP_SECRET', 'REDIS_URL'],
     allowedTargetPrefixes: (process.env.CREDENTIAL_TARGET_PREFIXES ?? 'FeishuAgent/')
       .split(',')
       .map((item) => item.trim())
       .filter(Boolean),
+    allowedFileRoots: (process.env.CREDENTIAL_FILE_ROOTS ?? '')
+      .split(',')
+      .map((item) => item.trim())
+      .filter(Boolean),
+    enforceFilePermissions: process.env.CREDENTIAL_FILE_ENFORCE_POSIX_PERMISSIONS !== 'false',
   });
   const config = loadFeishuGatewayConfig();
   const pipelineConfig = loadMessagePipelineConfig();

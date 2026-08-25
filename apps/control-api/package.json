@@ -23,6 +23,7 @@
     "@feishu-agent/integrations": "workspace:*",
     "@feishu-agent/observability": "workspace:*",
     "@feishu-agent/policy": "workspace:*",
+    "@feishu-agent/transport": "workspace:*",
     "bullmq": "6.1.2",
     "fastify": "^5.6.2",
     "ioredis": "5.8.2",

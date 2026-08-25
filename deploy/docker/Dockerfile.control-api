@@ -1,0 +1,41 @@
+FROM node:24-bookworm-slim@sha256:3638d9a6fe4030bd716be989438248074489337ba3275657f93595428be4fc03 AS build
+
+ENV COREPACK_HOME=/opt/corepack
+WORKDIR /workspace
+RUN corepack enable && corepack prepare pnpm@11.19.0 --activate
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml tsconfig.json ./
+COPY apps/admin-web/package.json ./apps/admin-web/package.json
+COPY apps/control-api/package.json ./apps/control-api/package.json
+COPY apps/feishu-gateway/package.json ./apps/feishu-gateway/package.json
+COPY apps/windows-worker/package.json ./apps/windows-worker/package.json
+COPY packages/contracts/package.json ./packages/contracts/package.json
+COPY packages/credentials/package.json ./packages/credentials/package.json
+COPY packages/database/package.json ./packages/database/package.json
+COPY packages/executors/package.json ./packages/executors/package.json
+COPY packages/integrations/package.json ./packages/integrations/package.json
+COPY packages/observability/package.json ./packages/observability/package.json
+COPY packages/policy/package.json ./packages/policy/package.json
+COPY packages/testing/package.json ./packages/testing/package.json
+COPY packages/transport/package.json ./packages/transport/package.json
+RUN --mount=type=cache,id=feishu-agent-pnpm-v11,target=/root/.local/share/pnpm/store/v11 \
+    pnpm install --frozen-lockfile --network-concurrency=4 --config.node-linker=hoisted
+COPY apps ./apps
+COPY packages ./packages
+RUN --mount=type=cache,id=feishu-agent-pnpm-v11,target=/root/.local/share/pnpm/store/v11 \
+    pnpm build:packages \
+    && pnpm --filter @feishu-agent/control-api run build \
+    && pnpm --config.inject-workspace-packages=true deploy --filter @feishu-agent/control-api --prod --network-concurrency=4 /opt/control-api
+
+FROM node:24-bookworm-slim@sha256:3638d9a6fe4030bd716be989438248074489337ba3275657f93595428be4fc03
+
+ENV NODE_ENV=production \
+    CONTROL_API_HOST=0.0.0.0 \
+    CONTROL_API_PORT=3000
+WORKDIR /app
+COPY --from=build --chown=node:node /opt/control-api/ /app/
+COPY --from=build --chown=node:node /workspace/packages/database/dist/ /app/database/dist/
+COPY --from=build --chown=node:node /workspace/packages/database/migrations/ /app/database/migrations/
+COPY --from=build --chown=node:node /workspace/node_modules/postgres/ /app/node_modules/postgres/
+USER node
+EXPOSE 3000
+CMD ["node", "dist/index.js"]

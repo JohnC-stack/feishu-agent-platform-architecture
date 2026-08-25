@@ -1,10 +1,16 @@
+import { chmod, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+
 import { describe, expect, it, vi } from 'vitest';
 
 import {
   CredentialReferenceResolver,
   EnterpriseSecretManagerProvider,
+  FileSecretProvider,
   ProtectedCredential,
   WindowsCredentialManagerProvider,
+  resolveEnvironmentCredentialReferences,
 } from './index.js';
 
 describe('P5 credential references', () => {
@@ -42,5 +48,47 @@ describe('P5 credential references', () => {
         target: 'FeishuAgent/Missing',
       }),
     ).rejects.toThrow('not configured');
+  });
+
+  it('loads an allowlisted file secret without retaining its trailing newline', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'feishu-agent-file-secret-'));
+    const target = join(root, 'database-url');
+    const outside = join(tmpdir(), 'not-allowlisted-secret');
+    try {
+      await writeFile(target, 'postgres://synthetic\n', { mode: 0o600 });
+      await chmod(target, 0o600);
+      const provider = new FileSecretProvider([root]);
+      await expect(provider.resolve(target)).resolves.toMatchObject({});
+      expect((await provider.resolve(target)).reveal()).toBe('postgres://synthetic');
+      await expect(provider.resolve(outside)).rejects.toThrow('outside');
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it('resolves explicit filecred references and leaves plain values unchanged', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'feishu-agent-env-secret-'));
+    const target = join(root, 'credential');
+    try {
+      await writeFile(target, 'synthetic-file-secret\n', { mode: 0o600 });
+      await chmod(target, 0o600);
+      const environment = {
+        DATABASE_URL: `filecred://${encodeURIComponent(target)}`,
+        REDIS_URL: 'redis://127.0.0.1:6379',
+      };
+      await expect(
+        resolveEnvironmentCredentialReferences({
+          names: ['DATABASE_URL', 'REDIS_URL'],
+          environment,
+          allowedFileRoots: [root],
+        }),
+      ).resolves.toEqual({ resolvedNames: ['DATABASE_URL'] });
+      expect(environment).toEqual({
+        DATABASE_URL: 'synthetic-file-secret',
+        REDIS_URL: 'redis://127.0.0.1:6379',
+      });
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
   });
 });

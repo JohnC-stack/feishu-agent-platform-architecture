@@ -1,0 +1,313 @@
+name: ${COMPOSE_PROJECT_NAME:-feishu-agent}
+
+x-control-environment: &control-environment
+  NODE_ENV: production
+  LOG_LEVEL: ${LOG_LEVEL:-info}
+  CONTROL_API_HOST: 0.0.0.0
+  CONTROL_API_PORT: 3000
+  DATABASE_URL: filecred:///run/secrets/database-url
+  REDIS_URL: filecred:///run/secrets/redis-url
+  FEISHU_APP_SECRET: filecred:///run/secrets/feishu-app-secret
+  CREDENTIAL_TARGET_PREFIXES: ${CREDENTIAL_TARGET_PREFIXES:-FeishuAgent/}
+  CREDENTIAL_FILE_ROOTS: /run/secrets
+  CREDENTIAL_FILE_ENFORCE_POSIX_PERMISSIONS: ${CREDENTIAL_FILE_ENFORCE_POSIX_PERMISSIONS:-true}
+  NODE_EXTRA_CA_CERTS: /run/secrets/internal-ca
+  API_AGENT_ENABLED: 'false'
+  FEISHU_APP_ID: ${FEISHU_APP_ID:?FEISHU_APP_ID is required}
+  FEISHU_OAUTH_ENABLED: ${FEISHU_OAUTH_ENABLED:-true}
+  FEISHU_OAUTH_REDIRECT_URI: ${FEISHU_OAUTH_REDIRECT_URI:?FEISHU_OAUTH_REDIRECT_URI is required}
+  FEISHU_OAUTH_FRONTEND_URL: ${FEISHU_OAUTH_FRONTEND_URL:?FEISHU_OAUTH_FRONTEND_URL is required}
+  FEISHU_OAUTH_SCOPES: ${FEISHU_OAUTH_SCOPES:-}
+  WINDOWS_WORKER_URL: https://windows-host.internal:${WINDOWS_WORKER_TARGET_PORT:-3200}
+  FEISHU_GATEWAY_INTERNAL_URL: https://windows-host.internal:${FEISHU_GATEWAY_TARGET_PORT:-3100}
+  WINDOWS_SERVICE_MTLS_REQUIRED: 'true'
+  WINDOWS_SERVICE_MTLS_CA_PATH: /run/secrets/internal-ca
+  WINDOWS_SERVICE_MTLS_CERT_PATH: /run/secrets/linux-client-cert
+  WINDOWS_SERVICE_MTLS_KEY_PATH: /run/secrets/linux-client-key
+  WINDOWS_SERVICE_MTLS_ALLOWED_HOSTS: windows-host.internal
+  WINDOWS_SERVICE_MTLS_ENFORCE_POSIX_PERMISSIONS: ${CREDENTIAL_FILE_ENFORCE_POSIX_PERMISSIONS:-true}
+  REDIS_MTLS_REQUIRED: 'true'
+  REDIS_MTLS_CA_PATH: /run/secrets/internal-ca
+  REDIS_MTLS_CERT_PATH: /run/secrets/linux-client-cert
+  REDIS_MTLS_KEY_PATH: /run/secrets/linux-client-key
+  REDIS_MTLS_ALLOWED_HOSTS: redis
+  REDIS_MTLS_SERVER_NAME: redis
+  REDIS_MTLS_ENFORCE_POSIX_PERMISSIONS: ${CREDENTIAL_FILE_ENFORCE_POSIX_PERMISSIONS:-true}
+  TASK_QUEUE_NAME: ${TASK_QUEUE_NAME:-feishu-agent-tasks}
+  TASK_QUEUE_CONCURRENCY: ${TASK_QUEUE_CONCURRENCY:-4}
+  TASK_QUEUE_TIMEOUT_MS: ${TASK_QUEUE_TIMEOUT_MS:-300000}
+  TASK_QUEUE_ATTEMPTS: ${TASK_QUEUE_ATTEMPTS:-3}
+  TASK_QUEUE_BACKOFF_MS: ${TASK_QUEUE_BACKOFF_MS:-1000}
+  GOVERNANCE_ADMIN_USER_IDS: ${GOVERNANCE_ADMIN_USER_IDS:-}
+  GOVERNANCE_READER_USER_IDS: ${GOVERNANCE_READER_USER_IDS:-}
+  GOVERNANCE_OPERATOR_USER_IDS: ${GOVERNANCE_OPERATOR_USER_IDS:-}
+  GOVERNANCE_APPROVER_USER_IDS: ${GOVERNANCE_APPROVER_USER_IDS:-}
+  GOVERNANCE_AUDITOR_USER_IDS: ${GOVERNANCE_AUDITOR_USER_IDS:-}
+  GOVERNANCE_APPROVAL_TTL_SECONDS: ${GOVERNANCE_APPROVAL_TTL_SECONDS:-3600}
+  GOVERNANCE_AUDIT_RETENTION_DAYS: ${GOVERNANCE_AUDIT_RETENTION_DAYS:-365}
+
+x-control-secrets: &control-secrets
+  - database-url
+  - redis-url
+  - feishu-app-secret
+  - internal-ca
+  - linux-client-cert
+  - linux-client-key
+
+services:
+  postgres:
+    image: postgres:16-alpine@sha256:cf78e76683b9ca8c5733cbbdce6c9262b45b6767934dd0a95e671f9a0fc20685
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-feishu_agent}
+      POSTGRES_USER: ${POSTGRES_USER:-feishu_agent}
+      POSTGRES_PASSWORD_FILE: /run/secrets/postgres-password
+    secrets:
+      - postgres-password
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    networks: [data]
+    healthcheck:
+      test: [CMD-SHELL, 'pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}']
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    security_opt: [no-new-privileges:true]
+
+  redis:
+    image: redis:7-alpine@sha256:e7723ff73d963f5cc6d9c4643ea3d989527a402a319239054e9472a7fb9219a2
+    restart: unless-stopped
+    entrypoint: [/bin/sh, /usr/local/bin/feishu-agent-redis-entrypoint]
+    volumes:
+      - redis-data:/data
+      - ./redis-entrypoint.sh:/usr/local/bin/feishu-agent-redis-entrypoint:ro
+    tmpfs:
+      - /run/redis:rw,noexec,nosuid,size=8m
+    ports:
+      - ${VM_BIND_ADDRESS:?VM_BIND_ADDRESS is required}:${REDIS_BIND_PORT:-6379}:6379
+    secrets:
+      - redis-password
+      - internal-ca
+      - redis-cert
+      - redis-key
+      - linux-client-cert
+      - linux-client-key
+    networks: [data, windows]
+    healthcheck:
+      test:
+        [
+          CMD-SHELL,
+          'REDISCLI_AUTH=$$(cat /run/secrets/redis-password) redis-cli --tls --cacert /run/secrets/internal-ca --cert /run/secrets/linux-client-cert --key /run/secrets/linux-client-key ping | grep -q PONG',
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    security_opt: [no-new-privileges:true]
+
+  migrate:
+    build:
+      context: ../..
+      dockerfile: deploy/docker/Dockerfile.control-api
+    image: feishu-agent/control-api:${PLATFORM_VERSION:-p7}
+    command:
+      [
+        /bin/sh,
+        -c,
+        'export DATABASE_URL=$$(cat /run/secrets/database-url); exec node database/dist/migrate.js',
+      ]
+    environment: *control-environment
+    group_add:
+      - '${LINUX_SECRET_GID:-1999}'
+    secrets: *control-secrets
+    extra_hosts:
+      - windows-host.internal:${WINDOWS_HOST_ADDRESS:?WINDOWS_HOST_ADDRESS is required}
+    networks: [data, windows]
+    depends_on:
+      postgres: { condition: service_healthy }
+      redis: { condition: service_healthy }
+    restart: 'no'
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=64m
+    security_opt: [no-new-privileges:true]
+
+  control-api:
+    build:
+      context: ../..
+      dockerfile: deploy/docker/Dockerfile.control-api
+    image: feishu-agent/control-api:${PLATFORM_VERSION:-p7}
+    restart: unless-stopped
+    environment: *control-environment
+    group_add:
+      - '${LINUX_SECRET_GID:-1999}'
+    secrets: *control-secrets
+    extra_hosts:
+      - windows-host.internal:${WINDOWS_HOST_ADDRESS:?WINDOWS_HOST_ADDRESS is required}
+    networks: [app, data, windows]
+    depends_on:
+      migrate: { condition: service_completed_successfully }
+    healthcheck:
+      test:
+        [
+          CMD,
+          node,
+          -e,
+          "fetch('http://127.0.0.1:3000/health/ready').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))",
+        ]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=128m
+    security_opt: [no-new-privileges:true]
+
+  control-api-canary:
+    profiles: [canary]
+    image: feishu-agent/control-api:${PLATFORM_VERSION:-p7}
+    restart: 'no'
+    environment:
+      <<: *control-environment
+      CONTROL_API_CANARY: 'true'
+    group_add:
+      - '${LINUX_SECRET_GID:-1999}'
+    secrets: *control-secrets
+    extra_hosts:
+      - windows-host.internal:${WINDOWS_HOST_ADDRESS:?WINDOWS_HOST_ADDRESS is required}
+    networks: [data, windows]
+    depends_on:
+      migrate: { condition: service_completed_successfully }
+    healthcheck:
+      test:
+        [
+          CMD,
+          node,
+          -e,
+          "fetch('http://127.0.0.1:3000/health/ready').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))",
+        ]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=128m
+    security_opt: [no-new-privileges:true]
+
+  edge:
+    build:
+      context: ../..
+      dockerfile: deploy/docker/Dockerfile.edge
+    image: feishu-agent/edge:${PLATFORM_VERSION:-p7}
+    restart: unless-stopped
+    environment:
+      ADMIN_DOMAIN: ${ADMIN_DOMAIN:?ADMIN_DOMAIN is required}
+      WINDOWS_CONTROL_DOMAIN: ${WINDOWS_CONTROL_DOMAIN:?WINDOWS_CONTROL_DOMAIN is required}
+    group_add:
+      - '${LINUX_SECRET_GID:-1999}'
+    ports:
+      - ${VM_BIND_ADDRESS:?VM_BIND_ADDRESS is required}:${EDGE_BIND_PORT:-443}:443
+    secrets:
+      - edge-cert
+      - edge-key
+      - internal-ca
+    networks: [app, ingress]
+    depends_on:
+      control-api: { condition: service_healthy }
+    cap_drop: [ALL]
+    cap_add: [NET_BIND_SERVICE]
+    read_only: true
+    tmpfs:
+      - /config:rw,noexec,nosuid,size=16m
+      - /data:rw,noexec,nosuid,size=32m
+    security_opt: [no-new-privileges:true]
+
+  prometheus:
+    image: prom/prometheus:v3.12.0@sha256:69f5241418838263316593f7274a304b095c40bcf22e57272865da91bd60a8ac
+    restart: unless-stopped
+    entrypoint: [/bin/sh, -c]
+    command:
+      - |
+        sed \
+          -e "s/__FEISHU_GATEWAY_TARGET_PORT__/$${FEISHU_GATEWAY_TARGET_PORT}/g" \
+          -e "s/__WINDOWS_WORKER_TARGET_PORT__/$${WINDOWS_WORKER_TARGET_PORT}/g" \
+          /etc/prometheus/prometheus.template.yml > /tmp/prometheus.yml
+        exec /bin/prometheus \
+          --config.file=/tmp/prometheus.yml \
+          --storage.tsdb.path=/prometheus \
+          --storage.tsdb.retention.time=30d
+    environment:
+      FEISHU_GATEWAY_TARGET_PORT: ${FEISHU_GATEWAY_TARGET_PORT:-3100}
+      WINDOWS_WORKER_TARGET_PORT: ${WINDOWS_WORKER_TARGET_PORT:-3200}
+    group_add:
+      - '${LINUX_SECRET_GID:-1999}'
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.template.yml:ro
+      - prometheus-data:/prometheus
+    secrets:
+      - internal-ca
+      - linux-client-cert
+      - linux-client-key
+    extra_hosts:
+      - windows-host.internal:${WINDOWS_HOST_ADDRESS:?WINDOWS_HOST_ADDRESS is required}
+    networks: [app, windows]
+    depends_on:
+      control-api: { condition: service_healthy }
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=64m
+    security_opt: [no-new-privileges:true]
+
+  grafana:
+    image: grafana/grafana:13.1.0@sha256:121a7a9ece6dc10b969f1f96eed64b4f07dfac0d0b8abc070f7cb83bbde86f63
+    restart: unless-stopped
+    environment:
+      GF_SERVER_ROOT_URL: https://${ADMIN_DOMAIN:?ADMIN_DOMAIN is required}/ops/grafana/
+      GF_SERVER_SERVE_FROM_SUB_PATH: 'true'
+      GF_AUTH_ANONYMOUS_ENABLED: 'false'
+      GF_SECURITY_ADMIN_PASSWORD__FILE: /run/secrets/grafana-admin-password
+      GF_USERS_ALLOW_SIGN_UP: 'false'
+      GF_ANALYTICS_REPORTING_ENABLED: 'false'
+      GF_ANALYTICS_CHECK_FOR_UPDATES: 'false'
+      GF_ANALYTICS_CHECK_FOR_PLUGIN_UPDATES: 'false'
+      GF_PLUGINS_PREINSTALL_DISABLED: 'true'
+    group_add:
+      - '${LINUX_SECRET_GID:-1999}'
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - ./grafana/provisioning/datasources:/etc/grafana/provisioning/datasources:ro
+    secrets:
+      - grafana-admin-password
+    networks: [app]
+    depends_on: [prometheus]
+    security_opt: [no-new-privileges:true]
+
+networks:
+  ingress:
+    internal: false
+  app:
+    internal: true
+  data:
+    internal: true
+  windows:
+    internal: false
+
+volumes:
+  postgres-data:
+  redis-data:
+  prometheus-data:
+  grafana-data:
+
+secrets:
+  postgres-password: { file: '${SECRETS_DIR:?SECRETS_DIR is required}/postgres-password' }
+  database-url: { file: '${SECRETS_DIR:?SECRETS_DIR is required}/database-url' }
+  redis-password: { file: '${SECRETS_DIR:?SECRETS_DIR is required}/redis-password' }
+  redis-url: { file: '${SECRETS_DIR:?SECRETS_DIR is required}/redis-url' }
+  feishu-app-secret: { file: '${SECRETS_DIR:?SECRETS_DIR is required}/feishu-app-secret' }
+  grafana-admin-password: { file: '${SECRETS_DIR:?SECRETS_DIR is required}/grafana-admin-password' }
+  internal-ca: { file: '${TLS_DIR:?TLS_DIR is required}/ca.pem' }
+  edge-cert: { file: '${TLS_DIR:?TLS_DIR is required}/edge.pem' }
+  edge-key: { file: '${TLS_DIR:?TLS_DIR is required}/edge-key.pem' }
+  redis-cert: { file: '${TLS_DIR:?TLS_DIR is required}/redis.pem' }
+  redis-key: { file: '${TLS_DIR:?TLS_DIR is required}/redis-key.pem' }
+  linux-client-cert: { file: '${TLS_DIR:?TLS_DIR is required}/linux-client.pem' }
+  linux-client-key: { file: '${TLS_DIR:?TLS_DIR is required}/linux-client-key.pem' }

@@ -1,0 +1,20 @@
+[Unit]
+Description=Feishu Agent Linux control plane
+Requires=docker.service
+After=docker.service network-online.target
+Wants=network-online.target
+ConditionPathExists=/opt/feishu-agent/production.env
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+WorkingDirectory=/opt/feishu-agent
+EnvironmentFile=/opt/feishu-agent/production.env
+ExecStartPre=/usr/bin/docker compose --env-file /opt/feishu-agent/production.env -f /opt/feishu-agent/deploy/docker/compose.prod.yml config --quiet
+ExecStart=/usr/bin/docker compose --env-file /opt/feishu-agent/production.env -f /opt/feishu-agent/deploy/docker/compose.prod.yml up -d --remove-orphans
+ExecStop=/usr/bin/docker compose --env-file /opt/feishu-agent/production.env -f /opt/feishu-agent/deploy/docker/compose.prod.yml stop
+TimeoutStartSec=600
+TimeoutStopSec=120
+
+[Install]
+WantedBy=multi-user.target

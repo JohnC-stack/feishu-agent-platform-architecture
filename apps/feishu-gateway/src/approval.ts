@@ -1,4 +1,5 @@
 import { Client, Domain } from '@larksuiteoapi/node-sdk';
+import { createMtlsFetch, readMtlsClientOptions } from '@feishu-agent/transport';
 import { z } from 'zod';
 
 import type { FeishuGatewayConfig } from './config.js';
@@ -187,12 +188,17 @@ export function createControlApiApprovalClient(
   baseUrlInput = process.env.CONTROL_API_INTERNAL_URL ?? 'http://127.0.0.1:3000',
 ): ApprovalDecisionClient {
   const baseUrl = new URL(baseUrlInput);
-  if (!['127.0.0.1', 'localhost', '::1'].includes(baseUrl.hostname)) {
-    throw new Error('CONTROL_API_INTERNAL_URL must resolve to the local loopback interface.');
+  const mtls = readMtlsClientOptions('CONTROL_PLANE');
+  if (
+    !['127.0.0.1', 'localhost', '::1'].includes(baseUrl.hostname) &&
+    (!mtls.required || baseUrl.protocol !== 'https:')
+  ) {
+    throw new Error('CONTROL_API_INTERNAL_URL may leave loopback only through required mTLS.');
   }
+  const transport = createMtlsFetch(mtls);
   return {
     async decide(input) {
-      const response = await fetch(
+      const response = await transport(
         new URL(
           `/v1/governance/approvals/${encodeURIComponent(input.approvalId)}/decisions`,
           baseUrl,

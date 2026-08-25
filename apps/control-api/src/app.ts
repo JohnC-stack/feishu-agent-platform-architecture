@@ -3,6 +3,7 @@ import { ZodError } from 'zod';
 
 import { buildServiceApp, type ServiceOptions } from '@feishu-agent/observability';
 import { BudgetExceededError, GovernanceConflictError } from '@feishu-agent/database';
+import { readServiceTlsOptions } from '@feishu-agent/transport';
 
 import { registerGovernanceRoutes } from './governance-routes.js';
 import { AdminAuthenticationError, registerAdminRoutes } from './admin-routes.js';
@@ -23,13 +24,14 @@ export interface ControlApiDependencies {
 
 export const controlApiOptions: ServiceOptions = {
   service: 'control-api',
-  version: '0.1.0',
+  version: process.env.PLATFORM_VERSION ?? '0.1.0',
   host: process.env.CONTROL_API_HOST ?? '127.0.0.1',
   port: readPort(process.env.CONTROL_API_PORT, 3000),
+  https: readServiceTlsOptions('CONTROL_API'),
   registerRoutes(app) {
     app.get('/', () => ({
       service: 'control-api',
-      phase: 'P6',
+      phase: 'P7',
       message: 'Governed scheduling, approval, observability, and operations API is running.',
     }));
   },

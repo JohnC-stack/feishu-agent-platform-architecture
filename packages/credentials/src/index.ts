@@ -1,4 +1,6 @@
 import { execFile } from 'node:child_process';
+import { readFile, realpath, stat } from 'node:fs/promises';
+import { isAbsolute, relative, resolve } from 'node:path';
 import { promisify } from 'node:util';
 
 import { CredentialReferenceSchema, type CredentialReference } from '@feishu-agent/contracts';
@@ -71,6 +73,52 @@ export class WindowsCredentialManagerProvider implements CredentialProvider {
   }
 }
 
+export class FileSecretProvider implements CredentialProvider {
+  public readonly provider = 'file_secret' as const;
+
+  public constructor(
+    private readonly allowedRoots: string[],
+    private readonly enforcePosixPermissions = true,
+  ) {
+    if (allowedRoots.length === 0 || allowedRoots.some((root) => !isAbsolute(root))) {
+      throw new Error('File secret roots must contain at least one absolute path.');
+    }
+  }
+
+  public async resolve(target: string): Promise<ProtectedCredential> {
+    if (!isAbsolute(target)) {
+      throw new Error('File secret target must be an absolute path.');
+    }
+    const resolvedTarget = resolve(target);
+    const lexicalRoot = this.allowedRoots.find((root) =>
+      isWithinRoot(resolvedTarget, resolve(root)),
+    );
+    if (!lexicalRoot) {
+      throw new Error('File secret target is outside the configured allowlist.');
+    }
+    const [realTarget, realRoot] = await Promise.all([
+      realpath(resolvedTarget),
+      realpath(lexicalRoot),
+    ]);
+    if (!isWithinRoot(realTarget, realRoot)) {
+      throw new Error('File secret target resolves outside the configured allowlist.');
+    }
+    const metadata = await stat(realTarget);
+    if (!metadata.isFile() || metadata.size <= 0 || metadata.size > 1_048_576) {
+      throw new Error('File secret must be a non-empty regular file no larger than 1 MiB.');
+    }
+    if (
+      this.enforcePosixPermissions &&
+      process.platform !== 'win32' &&
+      (metadata.mode & 0o022) !== 0
+    ) {
+      throw new Error('File secret must not be writable by group or other users.');
+    }
+    const value = (await readFile(realTarget, 'utf8')).replace(/[\r\n]+$/u, '');
+    return new ProtectedCredential(value);
+  }
+}
+
 export class EnterpriseSecretManagerProvider implements CredentialProvider {
   public readonly provider = 'enterprise_secret_manager' as const;
 
@@ -82,40 +130,65 @@ export class EnterpriseSecretManagerProvider implements CredentialProvider {
 }
 
 export interface EnvironmentCredentialResolver {
-  resolve(reference: {
-    name: string;
-    provider: 'windows_credential_manager';
-    target: string;
-  }): Promise<ProtectedCredential>;
+  resolve(reference: CredentialReference): Promise<ProtectedCredential>;
 }
 
 export async function resolveEnvironmentCredentialReferences(input: {
   names: string[];
   environment?: NodeJS.ProcessEnv;
   allowedTargetPrefixes?: string[];
+  allowedFileRoots?: string[];
+  enforceFilePermissions?: boolean;
   resolver?: EnvironmentCredentialResolver;
 }): Promise<{ resolvedNames: string[] }> {
   const environment = input.environment ?? process.env;
-  const resolver =
-    input.resolver ??
-    new CredentialReferenceResolver([
-      new WindowsCredentialManagerProvider(input.allowedTargetPrefixes ?? ['FeishuAgent/']),
-    ]);
+  const providers: CredentialProvider[] = [
+    new WindowsCredentialManagerProvider(input.allowedTargetPrefixes ?? ['FeishuAgent/']),
+  ];
+  if (input.allowedFileRoots?.length) {
+    providers.push(
+      new FileSecretProvider(input.allowedFileRoots, input.enforceFilePermissions ?? true),
+    );
+  }
+  const resolver = input.resolver ?? new CredentialReferenceResolver(providers);
   const resolvedNames: string[] = [];
   for (const name of input.names) {
     const value = environment[name]?.trim();
-    if (!value?.startsWith('wincred://')) continue;
-    const target = decodeURIComponent(value.slice('wincred://'.length));
-    if (!target) throw new Error(`${name} has an empty Windows Credential Manager target.`);
-    const credential = await resolver.resolve({
-      name: name.toLowerCase(),
-      provider: 'windows_credential_manager',
-      target,
-    });
+    const reference = parseEnvironmentCredentialReference(name, value);
+    if (!reference) continue;
+    const { target } = reference;
+    if (!target) throw new Error(`${name} has an empty credential target.`);
+    const credential = await resolver.resolve(reference);
     environment[name] = credential.reveal();
     resolvedNames.push(name);
   }
   return { resolvedNames };
+}
+
+function parseEnvironmentCredentialReference(
+  name: string,
+  value: string | undefined,
+): CredentialReference | undefined {
+  if (value?.startsWith('wincred://')) {
+    return {
+      name: name.toLowerCase(),
+      provider: 'windows_credential_manager',
+      target: decodeURIComponent(value.slice('wincred://'.length)),
+    };
+  }
+  if (value?.startsWith('filecred://')) {
+    return {
+      name: name.toLowerCase(),
+      provider: 'file_secret',
+      target: decodeURIComponent(value.slice('filecred://'.length)),
+    };
+  }
+  return undefined;
+}
+
+function isWithinRoot(candidate: string, root: string): boolean {
+  const path = relative(root, candidate);
+  return path === '' || (!path.startsWith('..') && !isAbsolute(path));
 }
 
 export async function storeWindowsCredential(input: {

@@ -1,6 +1,7 @@
 import { createHash, randomUUID } from 'node:crypto';
 
 import Redis from 'ioredis';
+import { readMtlsClientOptions } from '@feishu-agent/transport';
 
 export interface IdempotencyLease {
   namespace: string;
@@ -26,11 +27,34 @@ export interface RateLimiter {
 }
 
 export function createRedisClient(url: string): Redis {
+  const mtls = readMtlsClientOptions('REDIS');
+  const endpoint = new URL(url);
+  if (mtls.required && endpoint.protocol !== 'rediss:') {
+    throw new Error('Redis mTLS requires a rediss:// endpoint.');
+  }
+  if (
+    mtls.required &&
+    !mtls.allowedHosts.some((host) => host === endpoint.hostname.toLowerCase())
+  ) {
+    throw new Error('Redis mTLS endpoint host is outside the configured allowlist.');
+  }
   return new Redis(url, {
     lazyConnect: true,
     enableReadyCheck: true,
     maxRetriesPerRequest: 1,
     retryStrategy: (attempt) => Math.min(attempt * 250, 2000),
+    ...(mtls.ca && mtls.cert && mtls.key
+      ? {
+          tls: {
+            ca: mtls.ca,
+            cert: mtls.cert,
+            key: mtls.key,
+            servername: mtls.servername ?? endpoint.hostname,
+            rejectUnauthorized: true,
+            minVersion: 'TLSv1.3' as const,
+          },
+        }
+      : {}),
   });
 }
 

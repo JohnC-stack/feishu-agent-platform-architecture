@@ -2,6 +2,7 @@ import { Queue, QueueEvents, UnrecoverableError, Worker, type Job } from 'bullmq
 import IORedis from 'ioredis';
 
 import type { ExecutorKind } from '@feishu-agent/contracts';
+import { readMtlsClientOptions } from '@feishu-agent/transport';
 
 import type { TaskQueueConfig } from './task-queue-config.js';
 
@@ -323,10 +324,30 @@ export class TaskNonRetryableError extends Error {
 }
 
 function createRedisConnection(redisUrl: string, maxRetriesPerRequest: number | null): IORedis {
+  const mtls = readMtlsClientOptions('REDIS');
+  const url = new URL(redisUrl);
+  if (mtls.required && url.protocol !== 'rediss:') {
+    throw new Error('Redis mTLS requires a rediss:// endpoint.');
+  }
+  if (mtls.required && !mtls.allowedHosts.some((host) => host === url.hostname.toLowerCase())) {
+    throw new Error('Redis mTLS endpoint host is outside the configured allowlist.');
+  }
   return new IORedis(redisUrl, {
     maxRetriesPerRequest,
     enableReadyCheck: true,
     lazyConnect: false,
+    ...(mtls.ca && mtls.cert && mtls.key
+      ? {
+          tls: {
+            ca: mtls.ca,
+            cert: mtls.cert,
+            key: mtls.key,
+            servername: mtls.servername ?? url.hostname,
+            rejectUnauthorized: true,
+            minVersion: 'TLSv1.3' as const,
+          },
+        }
+      : {}),
   });
 }
 

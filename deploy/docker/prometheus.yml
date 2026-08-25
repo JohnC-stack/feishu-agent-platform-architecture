@@ -1,0 +1,23 @@
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+scrape_configs:
+  - job_name: control-api
+    metrics_path: /metrics
+    static_configs:
+      - targets: [control-api:3000]
+
+  - job_name: windows-services
+    scheme: https
+    metrics_path: /metrics
+    tls_config:
+      ca_file: /run/secrets/internal-ca
+      cert_file: /run/secrets/linux-client-cert
+      key_file: /run/secrets/linux-client-key
+      server_name: windows-host.internal
+      insecure_skip_verify: false
+    static_configs:
+      - targets:
+          - windows-host.internal:__FEISHU_GATEWAY_TARGET_PORT__
+          - windows-host.internal:__WINDOWS_WORKER_TARGET_PORT__

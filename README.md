@@ -256,4 +256,4 @@ Windows 与 Linux VM 之间只开放必要内部端口，并使用 mTLS 或等�
 
 ## 下一步
 
-P0、P1、P2、P3、P4、P5、P6 均已关闭。P6 管理台、运维聚合、Trace、告警、配置脱敏、受治理操作、飞书登录、角色隔离和页面人工验收均已通过。P7 尚未开始，等待明确启动指令。详见 [P6 管理台与运维](docs/p6-admin-and-operations.md)、[P6 页面与交互规范](docs/p6-admin-ui-spec.md) 和 [P6 管理中心操作说明书](docs/p6-admin-operation-manual.md)。
+P0、P1、P2、P3、P4、P5、P6、P7 均已关闭。P7 已完成 Windows 原生服务、Hyper-V Linux Docker 控制面、内部 mTLS、最小端口、迁移/金丝雀/回滚、加密备份/独立恢复以及 Windows 整机重启后的 15 项自动恢复和端到端验收。P8 尚未开始，等待明确启动指令。详见 [实施状态](IMPLEMENTATION_STATUS.md)、[P7 混合部署运维手册](docs/p7-hybrid-deployment-operation-manual.md)、[Windows 执行面部署](deploy/windows/README.md) 和 [Linux 控制面部署](deploy/docker/README.md)。

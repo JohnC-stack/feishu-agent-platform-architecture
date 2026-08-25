@@ -1,0 +1,15 @@
+.git
+.github
+.runtime
+.env
+.env.*
+coverage
+node_modules
+**/node_modules
+runtime
+workspaces
+**/dist
+**/*.log
+deploy/docker/secrets
+deploy/docker/tls
+deploy/backup/output

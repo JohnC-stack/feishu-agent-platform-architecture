@@ -1,0 +1,4 @@
+# Synthetic P5 unit-test values introduced in 195dc3d and replaced in 218379e.
+# Keep these exact historical fingerprints reviewable without weakening the rule or file scope.
+195dc3da317613a1eec819317a6d5d359636ac4a:apps/control-api/src/governance-service.test.ts:generic-api-key:161
+195dc3da317613a1eec819317a6d5d359636ac4a:apps/control-api/src/governance-service.test.ts:generic-api-key:222

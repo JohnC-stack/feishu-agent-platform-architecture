@@ -3,6 +3,7 @@ import { ZodError, z } from 'zod';
 
 import { ExecutorExecutionRequestSchema } from '@feishu-agent/contracts';
 import { buildServiceApp, type ServiceOptions } from '@feishu-agent/observability';
+import { readServiceTlsOptions } from '@feishu-agent/transport';
 
 import { createWindowsWorkerRuntime, type WindowsWorkerRuntime } from './runtime.js';
 
@@ -14,9 +15,10 @@ export interface WindowsWorkerDependencies {
 
 export const windowsWorkerOptions: ServiceOptions = {
   service: 'windows-worker',
-  version: '0.1.0',
+  version: process.env.PLATFORM_VERSION ?? '0.1.0',
   host: process.env.WINDOWS_WORKER_HOST ?? '127.0.0.1',
   port: readPort(process.env.WINDOWS_WORKER_PORT, 3200),
+  https: readServiceTlsOptions('WINDOWS_WORKER'),
 };
 
 export function createWindowsWorker(dependencies: WindowsWorkerDependencies = {}): FastifyInstance {
@@ -32,7 +34,7 @@ export function createWindowsWorker(dependencies: WindowsWorkerDependencies = {}
     registerRoutes(scope) {
       scope.get('/', () => ({
         service: 'windows-worker',
-        phase: 'P5',
+        phase: 'P7',
         executors: [
           'direct_tool',
           ...(runtime.status.apiAgentEnabled ? ['api_agent'] : []),

@@ -1,0 +1,16 @@
+FROM node:24-bookworm-slim@sha256:3638d9a6fe4030bd716be989438248074489337ba3275657f93595428be4fc03 AS build
+
+ENV COREPACK_HOME=/opt/corepack
+WORKDIR /workspace
+RUN corepack enable && corepack prepare pnpm@11.19.0 --activate
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml tsconfig.json ./
+COPY apps/admin-web ./apps/admin-web
+RUN --mount=type=cache,id=feishu-agent-pnpm-v11,target=/root/.local/share/pnpm/store/v11 \
+    pnpm install --frozen-lockfile --network-concurrency=4 \
+    && pnpm --filter @feishu-agent/admin-web run build
+
+FROM caddy:2.11.4-alpine@sha256:5f5c8640aae01df9654968d946d8f1a56c497f1dd5c5cda4cf95ab7c14d58648
+
+COPY deploy/docker/Caddyfile /etc/caddy/Caddyfile
+COPY --from=build /workspace/apps/admin-web/dist/ /srv/admin/
+EXPOSE 443

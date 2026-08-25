@@ -1,8 +1,8 @@
 # 飞书 Agent 平台实施状态
 
-- 更新日期：2026-08-22
-- 当前阶段：P6 已关闭；P7 尚未开始，等待明确启动指令
-- 总体状态：P0、P1、P2、P3、P4、P5、P6 已关闭；未进入 P7
+- 更新日期：2026-08-26
+- 当前阶段：P7 已关闭；P8 尚未开始
+- 总体状态：P0、P1、P2、P3、P4、P5、P6、P7 已关闭；等待明确启动 P8
 - 工作分支：`docs/hybrid-architecture-plan`
 
 ## P0 任务状态
@@ -201,4 +201,32 @@ P5 的实现、迁移、自动化测试、真实 PostgreSQL、Windows Credential
 
 ## P6 阶段出口
 
-P6 的底层迁移、真实 PostgreSQL/Redis、三服务运行态、飞书真实登录、典型失败 Trace、告警、配置脱敏、风险确认、前置阶段回归、新版管理中心人工视觉验收和真实页面角色绑定增删审计均已通过。功能提交为 `a21c695`，状态对齐提交为 `a79a401`；远端 [CI](https://github.com/JohnC-stack/feishu-agent-platform-architecture/actions/runs/32551926422) 与 [Security](https://github.com/JohnC-stack/feishu-agent-platform-architecture/actions/runs/32551926426) 均为 `success`。P6 于 2026-08-22 正式关闭；P7 尚未开始，等待明确启动指令。
+P6 的底层迁移、真实 PostgreSQL/Redis、三服务运行态、飞书真实登录、典型失败 Trace、告警、配置脱敏、风险确认、前置阶段回归、新版管理中心人工视觉验收和真实页面角色绑定增删审计均已通过。功能提交为 `a21c695`，状态对齐提交为 `a79a401`；远端 [CI](https://github.com/JohnC-stack/feishu-agent-platform-architecture/actions/runs/32551926422) 与 [Security](https://github.com/JohnC-stack/feishu-agent-platform-architecture/actions/runs/32551926426) 均为 `success`。P6 于 2026-08-22 正式关闭；P7 已按用户指令于 2026-08-24 启动。
+
+## P7 任务状态
+
+| 任务                     | 状态   | 当前证据                                                                                                                                                                |
+| ------------------------ | ------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `P7-01` Windows Service  | 已完成 | Gateway/Worker 以 `LocalService`、Automatic 方式运行于 `D:\FeishuAgent`；固定版本、10,703 项 SHA256 清单、WinSW 2.12.0、服务就绪和整机重启恢复均通过                    |
+| `P7-02` Linux VM 控制面  | 已完成 | Ubuntu 24.04.4 Hyper-V VM 固定为 `192.168.100.10`；Docker Engine/Compose、systemd 和 API、Web、PostgreSQL、Redis、Prometheus、Grafana 共 6 个生产容器实机运行并自动恢复 |
+| `P7-03` mTLS 与最小端口  | 已完成 | Windows 仅向 VM 放行 3100/3200；VM 仅向宿主放行 22/443/6379；三条持证通道返回 200/ok，无客户端证书在 TLS 1.3 握手阶段拒绝，3 个 Prometheus 目标均为 `up`                |
+| `P7-04` 升级、迁移与回滚 | 已完成 | Linux 与 Windows 均完成 `p7rc1 → p7rc2 → p7rc1` 实机演练；migration、无队列消费金丝雀、双服务健康、任务链路、证书状态和 PowerShell 5.1/7 门禁通过                       |
+| `P7-05` 加密备份与恢复   | 已完成 | 最终加密备份逐文件校验通过；独立项目恢复 5 条 migration、Redis `PONG` 与配置，恢复报告为 `passed`                                                                       |
+
+## P7 当前验收记录
+
+- Docker Desktop 仅作为正式 Linux VM 建立前的隔离验证环境，不作为生产依赖。生产 Compose 只发布内部地址的 443/6379；PostgreSQL、Control API、Prometheus 与 Grafana 不直接发布端口。
+- 主 Control API 与金丝雀均为 `healthy`；主实例完成队列恢复，金丝雀明确不消费队列；数据库 migration 返回 `Database is up to date.`。
+- Prometheus 的 Control API、Windows Gateway、Windows Worker 三个目标均为 `up`；管理页面、API、Grafana 和持证 Windows 通道均通过 TLS 1.3 返回 200，无客户端证书的 Windows 通道在握手阶段被拒绝。
+- 最终加密备份为 `feishu-agent-20260824T054343Z.tar.age`。独立恢复项目 `feishu-agent-drill-055224` 验证 5 条 migration、Redis `PONG`、配置和内部哈希，恢复报告结果为 `passed`；演练容器、网络和卷已删除，备份与报告保留。
+- `pnpm check` 通过：41 个测试文件、138 个测试、格式、Lint、严格类型检查及全部生产构建成功；Windows/Linux 部署资产静态门禁与 `git diff --check` 通过。生产依赖审计无已知漏洞；排除本机 `.env`、`.runtime` 和运行日志后，Gitleaks 对全部可提交源码、部署资产、文档和 Git 历史扫描无泄漏。历史中 P5 的两条合成测试值使用精确提交/文件/规则/行指纹留档忽略，原值已在后续提交 `218379e` 中替换，未放宽规则或文件范围。
+- Ubuntu Server 24.04.4 LTS 官方镜像、本地 SHA256、NoCloud 无人值守安装、固定 MAC/静态 IP、SSH 密钥和最小 UFW 均已验证。VM 配置、VHDX 和备份位于 `D:\Hyper-V`，生产 Docker 数据随 VHDX 位于 D 盘。
+- Windows Gateway/Worker 安装在 `D:\FeishuAgent`，服务防火墙规则严格限定来源 `192.168.100.10`。Linux VM 只在内部地址发布 443/6379，SSH 仅由宿主进入；Docker Desktop 在重启验收中未运行且不属于生产依赖。
+- 正式 443 入口的 `/ping` 在重启前后各完成一次 Control API → PostgreSQL → BullMQ → Windows Worker → PostgreSQL 全链路；两次均使用 `health-direct/direct_tool`，输出 `pong`，每次持久化 1 次 attempt、4 条执行事件和 3 条审计事件。
+- 2026-08-26 Windows 整机重启后，VM 自动启动策略、两个 Windows 服务、systemd、6 个容器、UFW、端口边界、4 个 HTTPS 入口、3 个 Prometheus 目标、mTLS 正反检查、Docker Desktop 零依赖和重启后端到端任务共 15 项全部通过。
+- 正式升级/回滚演练使用 `0.7.0-p7rc2`：Linux 完成镜像构建、migration、无队列消费金丝雀、活动切换和回滚，升级版与回滚版各提交一条真实 `/ping` 并返回 `pong`；Windows 完成 10,703 项发布复制与校验、Gateway/Worker 双服务升级健康和回滚健康，mTLS 证书指纹保持不变。最终活动版本恢复为 `0.7.0-p7rc1`，回滚后新任务 `56f67ee2-0e7d-4cb6-9013-339cf6321d0e` 成功，综合验收再次为 15/15。
+- P7 实机验收使用受保护的 P7 测试 PKI；进入 P8 生产试运行前必须换发企业 CA 证书，并由安全团队确认是否将 `LocalService` 切换为专用域服务账号。`API_AGENT_ENABLED=false` 保持不变。
+
+## P7 阶段出口
+
+P7 的正式拓扑、Windows 原生服务、Hyper-V Linux VM、内部 mTLS、最小端口、升级/回滚、加密备份/独立恢复、无 Docker Desktop 生产依赖、整机重启自动恢复和重启后端到端任务均已通过。P7 于 2026-08-26 正式关闭；P8 尚未开始，等待明确启动指令。生产试运行仍需在 P8 完成企业 CA 换证、压测、安全测试、故障演练、UAT 和准入评审。

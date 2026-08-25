@@ -89,6 +89,9 @@ importers:
       '@feishu-agent/policy':
         specifier: workspace:*
         version: link:../../packages/policy
+      '@feishu-agent/transport':
+        specifier: workspace:*
+        version: link:../../packages/transport
       bullmq:
         specifier: 6.1.2
         version: 6.1.2(ioredis@5.8.2(supports-color@7.2.0))
@@ -110,6 +113,9 @@ importers:
       '@feishu-agent/observability':
         specifier: workspace:*
         version: link:../../packages/observability
+      '@feishu-agent/transport':
+        specifier: workspace:*
+        version: link:../../packages/transport
       '@larksuiteoapi/node-sdk':
         specifier: 1.73.0
         version: 1.73.0(debug@4.4.3(supports-color@7.2.0))(supports-color@7.2.0)
@@ -147,6 +153,9 @@ importers:
       '@feishu-agent/observability':
         specifier: workspace:*
         version: link:../../packages/observability
+      '@feishu-agent/transport':
+        specifier: workspace:*
+        version: link:../../packages/transport
       fastify:
         specifier: ^5.6.2
         version: 5.12.1
@@ -208,6 +217,8 @@ importers:
         version: link:../contracts
 
   packages/testing: {}
+
+  packages/transport: {}
 
 packages:
 

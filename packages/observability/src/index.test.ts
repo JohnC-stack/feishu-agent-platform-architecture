@@ -43,6 +43,27 @@ describe('service health protocol', () => {
     });
   });
 
+  it('exports bounded Prometheus process and HTTP metrics', async () => {
+    const app = buildServiceApp({
+      service: 'test-service',
+      version: '0.1.0',
+      host: '127.0.0.1',
+      port: 0,
+    });
+    apps.push(app);
+
+    await app.inject({ method: 'GET', url: '/health/live' });
+    const response = await app.inject({ method: 'GET', url: '/metrics' });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.headers['content-type']).toContain('text/plain');
+    expect(response.body).toContain(
+      'feishu_agent_service_info{service="test-service",version="0.1.0"} 1',
+    );
+    expect(response.body).toContain('route="/health/live",status="200"} 1');
+    expect(response.body).not.toContain('route="/metrics"');
+  });
+
   it('redacts callback query strings from automatic request logs', async () => {
     const writes: string[] = [];
     const writeSpy = vi.spyOn(process.stdout, 'write').mockImplementation((chunk) => {

@@ -1,0 +1,51 @@
+{
+	admin off
+	auto_https disable_redirects
+	servers {
+		protocols h1 h2
+	}
+}
+
+{$ADMIN_DOMAIN}:443 {
+	tls /run/secrets/edge-cert /run/secrets/edge-key
+	encode zstd gzip
+
+	@api path /v1/* /health/*
+	handle @api {
+		reverse_proxy control-api:3000
+	}
+
+	handle_path /ops/grafana/* {
+		reverse_proxy grafana:3000
+	}
+
+	handle /edge-health {
+		respond "ok" 200
+	}
+
+	handle {
+		root * /srv/admin
+		try_files {path} /index.html
+		file_server
+	}
+
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		X-Content-Type-Options "nosniff"
+		Referrer-Policy "same-origin"
+		-Server
+	}
+}
+
+{$WINDOWS_CONTROL_DOMAIN}:443 {
+	tls /run/secrets/edge-cert /run/secrets/edge-key {
+		client_auth {
+			mode require_and_verify
+			trust_pool file {
+				pem_file /run/secrets/internal-ca
+			}
+		}
+	}
+	reverse_proxy control-api:3000
+	header -Server
+}

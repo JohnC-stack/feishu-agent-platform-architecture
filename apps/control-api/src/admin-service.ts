@@ -9,6 +9,7 @@ import type {
   OperationalAlertInput,
 } from '@feishu-agent/database';
 import { redactSensitive } from '@feishu-agent/integrations';
+import { createEnvironmentMtlsFetch, type PlatformFetch } from '@feishu-agent/transport';
 
 import { GovernanceAuthorizationError, type GovernanceService } from './governance-service.js';
 import type { TaskCoordinator } from './task-coordinator.js';
@@ -679,6 +680,7 @@ export function createAdminRuntime(input: {
 }): AdminRuntimePort {
   const environment = input.environment ?? process.env;
   const probeTimeoutMs = readPositiveInteger(environment.ADMIN_SERVICE_PROBE_TIMEOUT_MS, 2_500);
+  const serviceTransport = createEnvironmentMtlsFetch('WINDOWS_SERVICE', environment);
   return {
     getQueueSnapshot: () => input.queue.getSnapshot(),
     getServiceHealth: () =>
@@ -695,11 +697,13 @@ export function createAdminRuntime(input: {
           'feishu-gateway',
           `${environment.FEISHU_GATEWAY_INTERNAL_URL ?? 'http://127.0.0.1:3100'}/health/ready`,
           probeTimeoutMs,
+          serviceTransport,
         ),
         probeService(
           'windows-worker',
           `${environment.WINDOWS_WORKER_URL ?? 'http://127.0.0.1:3200'}/health/ready`,
           probeTimeoutMs,
+          serviceTransport,
         ),
       ]),
     getConfigSummary: () => buildConfigSummary(environment),
@@ -711,10 +715,11 @@ async function probeService(
   service: string,
   url: string,
   timeoutMs: number,
+  transport: PlatformFetch,
 ): Promise<ServiceHealth> {
   const started = performance.now();
   try {
-    const response = await fetch(url, { signal: AbortSignal.timeout(timeoutMs) });
+    const response = await transport(url, { signal: AbortSignal.timeout(timeoutMs) });
     const value = (await response.json()) as {
       status?: 'ok' | 'degraded';
       version?: string;

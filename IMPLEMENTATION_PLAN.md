@@ -246,6 +246,8 @@
 
 ### P7：混合部署（第 17–18 周）
 
+当前状态：已关闭。Windows 原生服务、Hyper-V Ubuntu Docker 控制面、内部 mTLS、最小端口、加密备份与独立恢复均已完成实机验收；Linux 与 Windows 分别完成 `p7rc1 → p7rc2 → p7rc1` 升级、健康检查和回滚，回滚后端到端任务通过；Windows 整机重启后的 15 项自动恢复检查通过。P7 于 2026-08-26 关闭，P8 尚未开始。
+
 任务：
 
 - `P7-01` 将 Feishu Gateway 和 Windows Worker 托管为 Windows Service。

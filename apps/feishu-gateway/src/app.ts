@@ -5,6 +5,7 @@ import {
   type ReadinessProbe,
   type ServiceOptions,
 } from '@feishu-agent/observability';
+import { readServiceTlsOptions } from '@feishu-agent/transport';
 
 import { createDisabledFeishuConnection, type FeishuConnectionRuntime } from './connection.js';
 
@@ -14,9 +15,10 @@ export function createFeishuGatewayOptions(
 ): ServiceOptions {
   return {
     service: 'feishu-gateway',
-    version: '0.2.0',
+    version: process.env.PLATFORM_VERSION ?? '0.2.0',
     host: process.env.FEISHU_GATEWAY_HOST ?? '127.0.0.1',
     port: readPort(process.env.FEISHU_GATEWAY_PORT, 3100),
+    https: readServiceTlsOptions('FEISHU_GATEWAY'),
     readinessProbes: [
       { name: 'feishu-wss', check: () => connection.isReady() },
       ...additionalReadinessProbes,
@@ -24,7 +26,7 @@ export function createFeishuGatewayOptions(
     registerRoutes(app) {
       app.get('/', () => ({
         service: 'feishu-gateway',
-        phase: 'P5',
+        phase: 'P7',
         connection: connection.getSnapshot(),
         message: 'Feishu WSS message and approval callback gateway is available.',
       }));
