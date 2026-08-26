@@ -212,6 +212,10 @@ export class GovernanceService {
     return this.authorizeGovernanceAction(input, 'access.manage', 'ACCESS_MANAGE_NOT_AUTHORIZED');
   }
 
+  public authorizeConfigManagement(input: { userId: string; groupIds?: string[] }): string[] {
+    return this.authorizeGovernanceAction(input, 'config.manage', 'CONFIG_MANAGE_NOT_AUTHORIZED');
+  }
+
   public async upsertRoleBinding(
     identity: { userId: string; groupIds?: string[] },
     binding: GovernanceRoleBinding,
@@ -573,7 +577,7 @@ export class GovernanceService {
 
   private authorizeGovernanceAction(
     input: { userId: string; groupIds?: string[] },
-    action: 'admin.read' | 'admin.operate' | 'alert.manage' | 'access.manage',
+    action: 'admin.read' | 'admin.operate' | 'alert.manage' | 'access.manage' | 'config.manage',
     code: string,
   ): string[] {
     const decision = this.requirePolicy().authorizeAction({

@@ -24,6 +24,7 @@ import {
   parseFeishuCommand,
   parseGitLabCommand,
   type EnterpriseIntegrationStatus,
+  type EnterpriseIntegrationResourceCounts,
 } from './integration-tools.js';
 
 export interface WindowsWorkerRuntime {
@@ -34,6 +35,7 @@ export interface WindowsWorkerRuntime {
     codexCliAvailable: boolean;
     hypervConfigured: boolean;
     integrations: EnterpriseIntegrationStatus;
+    integrationResourceCounts: EnterpriseIntegrationResourceCounts;
   };
 }
 
@@ -120,6 +122,7 @@ export function createWindowsWorkerRuntime(): WindowsWorkerRuntime {
           : true,
       hypervConfigured: false,
       integrations: integrations.status,
+      integrationResourceCounts: integrations.resourceCounts,
     },
   };
 }

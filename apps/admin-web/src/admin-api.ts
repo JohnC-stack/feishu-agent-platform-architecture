@@ -19,10 +19,12 @@ export interface ServiceHealth {
 export interface IntegrationStatus {
   id: string;
   name: string;
-  status: 'ready' | 'disabled' | 'incomplete';
+  status: 'ready' | 'configured' | 'disabled' | 'incomplete' | 'offline';
   mode: string;
   resourceCount?: number;
   detail: string;
+  source?: 'control-api' | 'windows-worker' | 'combined';
+  checkedAt?: string;
 }
 
 export interface ConfigurationItem {
@@ -31,6 +33,45 @@ export interface ConfigurationItem {
   configured: boolean;
   source: 'default' | 'environment' | 'credential_reference';
   restartRequired: boolean;
+}
+
+export interface ManagedConfigCatalogItem {
+  key: string;
+  group: string;
+  label: string;
+  description: string;
+  minimum: number;
+  maximum: number;
+  defaultValue: number;
+  unit: string;
+}
+
+export type ManagedConfiguration = Record<string, number>;
+
+export interface ConfigValidation {
+  valid: boolean;
+  errors: string[];
+  warnings: string[];
+  validatedAt: string;
+}
+
+export interface ConfigVersion {
+  id: string;
+  version: number;
+  checksum: string;
+  status: 'draft' | 'active' | 'superseded';
+  configuration: ManagedConfiguration;
+  description: string;
+  changeSummary: string;
+  baseVersion?: number;
+  validation: ConfigValidation;
+  createdBy: string;
+  createdAt: string;
+  updatedBy?: string;
+  updatedAt: string;
+  activatedBy?: string;
+  activatedAt?: string;
+  supersededAt?: string;
 }
 
 export interface AlertRecord {
@@ -94,7 +135,7 @@ export interface AdminConsoleCapabilities {
 }
 
 export interface AdminSnapshot {
-  phase: 'P6';
+  phase: 'P7';
   generatedAt: string;
   viewer: { roleIds: string[]; capabilities: AdminConsoleCapabilities };
   summary: {
@@ -111,6 +152,12 @@ export interface AdminSnapshot {
   services: ServiceHealth[];
   integrations: IntegrationStatus[];
   configuration: ConfigurationItem[];
+  managedConfiguration: {
+    catalog: ManagedConfigCatalogItem[];
+    effective: ManagedConfiguration;
+    source: 'bootstrap' | 'database';
+    activeVersion?: number;
+  };
   data: {
     taskCounts: Record<string, number>;
     tasks: Array<Record<string, unknown>>;
@@ -125,7 +172,7 @@ export interface AdminSnapshot {
     operations: AdminOperation[];
     releases: Array<Record<string, unknown>>;
     backups: Array<Record<string, unknown>>;
-    configVersions: Array<Record<string, unknown>>;
+    configVersions: ConfigVersion[];
   };
 }
 
@@ -301,6 +348,78 @@ export function deleteRoleBinding(
   });
 }
 
+export function validateManagedConfig(
+  identity: AdminIdentity,
+  configuration: ManagedConfiguration,
+): Promise<
+  ConfigValidation & {
+    configuration: ManagedConfiguration;
+    catalog: ManagedConfigCatalogItem[];
+  }
+> {
+  return request('/v1/admin/config/validate', identity, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ configuration }),
+  });
+}
+
+export function createConfigDraft(
+  identity: AdminIdentity,
+  input: {
+    configuration: ManagedConfiguration;
+    description: string;
+    changeSummary: string;
+    baseVersion?: number;
+  },
+): Promise<ConfigVersion> {
+  return request('/v1/admin/config/versions', identity, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(input),
+  });
+}
+
+export function updateConfigDraft(
+  identity: AdminIdentity,
+  configId: string,
+  input: {
+    configuration: ManagedConfiguration;
+    description: string;
+    changeSummary: string;
+  },
+): Promise<ConfigVersion> {
+  return request(`/v1/admin/config/versions/${encodeURIComponent(configId)}`, identity, {
+    method: 'PATCH',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(input),
+  });
+}
+
+export function publishConfigDraft(
+  identity: AdminIdentity,
+  configId: string,
+  confirmation: string,
+): Promise<ConfigVersion> {
+  return request(`/v1/admin/config/versions/${encodeURIComponent(configId)}/publish`, identity, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ confirmation }),
+  });
+}
+
+export function rollbackConfigVersion(
+  identity: AdminIdentity,
+  configId: string,
+  input: { confirmation: string; changeSummary: string },
+): Promise<ConfigVersion> {
+  return request(`/v1/admin/config/versions/${encodeURIComponent(configId)}/rollback`, identity, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(input),
+  });
+}
+
 async function request<T>(
   path: string,
   identity: AdminIdentity,
@@ -353,6 +472,18 @@ function localizedMessage(status: number, code: string, fallback?: string): stri
   }
   if (code === 'ACCESS_MANAGE_NOT_AUTHORIZED') {
     return '只有超级管理员可以调整用户和群组角色。';
+  }
+  if (code === 'CONFIG_MANAGE_NOT_AUTHORIZED') {
+    return '只有超级管理员可以修改、发布或回滚平台配置。';
+  }
+  if (code === 'CONFIG_DRAFT_IMMUTABLE') {
+    return '该配置版本已经发布，不能再修改。';
+  }
+  if (code === 'CONFIG_VALIDATION_REQUIRED') {
+    return '配置尚未通过服务端校验，不能发布。';
+  }
+  if (code === 'CONFIG_ROLLBACK_SOURCE_INVALID' || code === 'CONFIG_ROLLBACK_NO_CHANGE') {
+    return fallback ?? '所选配置版本不能用于回滚。';
   }
   if (code === 'FEISHU_SUPER_ADMIN_REQUIRED') {
     return '当前飞书用户不是平台超级管理员，请使用普通成员入口。';

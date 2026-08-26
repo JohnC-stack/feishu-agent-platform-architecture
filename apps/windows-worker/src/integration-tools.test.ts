@@ -32,6 +32,7 @@ describe('enterprise integration tool runtime', () => {
     const gateway = new ToolGateway(integrations.tools);
 
     expect(integrations.status).toEqual({ gitlab: false, confluence: false, feishu: false });
+    expect(integrations.resourceCounts).toEqual({ gitlab: 0, confluence: 0, feishu: 0 });
     await expect(
       gateway.invoke(
         'gitlab.read',
@@ -44,6 +45,32 @@ describe('enterprise integration tool runtime', () => {
       code: 'GITLAB_INTEGRATION_NOT_CONFIGURED',
       retryable: false,
     });
+  });
+
+  it('reports only redacted integration readiness and resource counts', () => {
+    const integrations = createEnterpriseIntegrationRuntime({
+      GITLAB_ALLOWED_PROJECTS: 'team/a,team/b,team/a',
+      CONFLUENCE_ALLOWED_SPACE_KEYS: 'ENG,OPS',
+      CONFLUENCE_ALLOWED_PAGE_IDS: '100,200',
+      FEISHU_ALLOWED_DOCUMENT_IDS: 'doc-1',
+      FEISHU_ALLOWED_CHAT_IDS: 'chat-1',
+    });
+
+    expect(integrations.resourceCounts).toEqual({ gitlab: 2, confluence: 4, feishu: 2 });
+    expect(JSON.stringify(integrations.resourceCounts)).not.toContain('team/a');
+  });
+
+  it('configures the service-safe Confluence runner without a user-profile CLI', () => {
+    const integrations = createEnterpriseIntegrationRuntime({
+      CONFLUENCE_BASE_URL: 'http://confluence.internal/confluence',
+      CONFLUENCE_USERNAME: 'service-user',
+      CONFLUENCE_PASSWORD: 'resolved-at-startup',
+      CONFLUENCE_ALLOWED_SPACE_KEYS: 'ENG',
+      CONFLUENCE_ALLOWED_PAGE_IDS: '100',
+    });
+
+    expect(integrations.status.confluence).toBe(true);
+    expect(integrations.resourceCounts.confluence).toBe(2);
   });
 
   it('parses deterministic commands without invoking a model', () => {

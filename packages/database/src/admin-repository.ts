@@ -4,6 +4,7 @@ import type { RiskLevel } from '@feishu-agent/contracts';
 import type { JSONValue } from 'postgres';
 
 import type { DatabaseClient } from './index.js';
+import { GovernanceConflictError } from './governance-repository.js';
 
 export type AdminAction = 'cancel' | 'retry' | 'cleanup' | 'restart' | 'rollback';
 export type AdminOperationStatus =
@@ -70,6 +71,32 @@ export interface AdminTaskTrace {
   executorEvents: Array<Record<string, unknown>>;
   approvals: Array<Record<string, unknown>>;
   auditEvents: Array<Record<string, unknown>>;
+}
+
+export interface PlatformConfigValidationRecord {
+  valid: boolean;
+  errors: string[];
+  warnings: string[];
+  validatedAt: string;
+}
+
+export interface PlatformConfigVersionRecord {
+  id: string;
+  version: number;
+  checksum: string;
+  status: 'draft' | 'active' | 'superseded';
+  configuration: Record<string, unknown>;
+  description: string;
+  changeSummary: string;
+  baseVersion?: number;
+  validation: PlatformConfigValidationRecord;
+  createdBy: string;
+  createdAt: string;
+  updatedBy?: string;
+  updatedAt: string;
+  activatedBy?: string;
+  activatedAt?: string;
+  supersededAt?: string;
 }
 
 export class AdminRepository {
@@ -268,9 +295,17 @@ export class AdminRepository {
           checksum,
           status,
           configuration,
+          description,
+          change_summary AS "changeSummary",
+          base_version AS "baseVersion",
+          validation,
           created_by AS "createdBy",
           created_at AS "createdAt",
-          activated_at AS "activatedAt"
+          updated_by AS "updatedBy",
+          updated_at AS "updatedAt",
+          activated_by AS "activatedBy",
+          activated_at AS "activatedAt",
+          superseded_at AS "supersededAt"
         FROM platform_config_versions
         ORDER BY version DESC
         LIMIT ${limit}
@@ -575,6 +610,225 @@ export class AdminRepository {
     return mapOperation(rows[0]);
   }
 
+  public async getConfigVersion(
+    configId: string,
+  ): Promise<PlatformConfigVersionRecord | undefined> {
+    const rows = await this.sql<Array<Record<string, unknown>>>`
+      SELECT *
+      FROM platform_config_versions
+      WHERE id = ${configId}
+    `;
+    return rows[0] ? mapConfigVersion(rows[0]) : undefined;
+  }
+
+  public async getActiveConfigVersion(): Promise<PlatformConfigVersionRecord | undefined> {
+    const rows = await this.sql<Array<Record<string, unknown>>>`
+      SELECT *
+      FROM platform_config_versions
+      WHERE status = 'active'
+    `;
+    return rows[0] ? mapConfigVersion(rows[0]) : undefined;
+  }
+
+  public async createConfigDraft(input: {
+    checksum: string;
+    configuration: Record<string, unknown>;
+    description: string;
+    changeSummary: string;
+    createdBy: string;
+    baseVersion?: number;
+    validation: PlatformConfigValidationRecord;
+  }): Promise<PlatformConfigVersionRecord> {
+    return this.sql.begin(async (transaction) => {
+      await transaction`SELECT pg_advisory_xact_lock(73492817)`;
+      const versions = await transaction<Array<{ version: number }>>`
+        SELECT coalesce(max(version), 0)::int + 1 AS version
+        FROM platform_config_versions
+      `;
+      const version = versions[0]?.version ?? 1;
+      const rows = await transaction<Array<Record<string, unknown>>>`
+        INSERT INTO platform_config_versions (
+          version,
+          checksum,
+          status,
+          configuration,
+          description,
+          change_summary,
+          base_version,
+          validation,
+          created_by,
+          updated_by
+        ) VALUES (
+          ${version},
+          ${input.checksum},
+          'draft',
+          ${transaction.json(toJsonValue(input.configuration))},
+          ${input.description},
+          ${input.changeSummary},
+          ${input.baseVersion ?? null},
+          ${transaction.json(toJsonValue(input.validation))},
+          ${input.createdBy},
+          ${input.createdBy}
+        )
+        RETURNING *
+      `;
+      return mapConfigVersion(rows[0]);
+    });
+  }
+
+  public async updateConfigDraft(input: {
+    configId: string;
+    checksum: string;
+    configuration: Record<string, unknown>;
+    description: string;
+    changeSummary: string;
+    updatedBy: string;
+    validation: PlatformConfigValidationRecord;
+  }): Promise<PlatformConfigVersionRecord> {
+    const rows = await this.sql<Array<Record<string, unknown>>>`
+      UPDATE platform_config_versions
+      SET
+        checksum = ${input.checksum},
+        configuration = ${this.sql.json(toJsonValue(input.configuration))},
+        description = ${input.description},
+        change_summary = ${input.changeSummary},
+        validation = ${this.sql.json(toJsonValue(input.validation))},
+        updated_by = ${input.updatedBy},
+        updated_at = now()
+      WHERE id = ${input.configId}
+        AND status = 'draft'
+      RETURNING *
+    `;
+    if (!rows[0]) {
+      throw new GovernanceConflictError(
+        'CONFIG_DRAFT_IMMUTABLE',
+        'Only an existing draft configuration can be updated.',
+      );
+    }
+    return mapConfigVersion(rows[0]);
+  }
+
+  public async publishConfigDraft(
+    configId: string,
+    actorId: string,
+  ): Promise<PlatformConfigVersionRecord> {
+    return this.sql.begin(async (transaction) => {
+      await transaction`SELECT pg_advisory_xact_lock(73492817)`;
+      const drafts = await transaction<Array<Record<string, unknown>>>`
+        SELECT *
+        FROM platform_config_versions
+        WHERE id = ${configId}
+        FOR UPDATE
+      `;
+      const draft = drafts[0] ? mapConfigVersion(drafts[0]) : undefined;
+      if (!draft || draft.status !== 'draft') {
+        throw new GovernanceConflictError(
+          'CONFIG_DRAFT_IMMUTABLE',
+          'Only an existing draft configuration can be published.',
+        );
+      }
+      if (!draft.validation.valid) {
+        throw new GovernanceConflictError(
+          'CONFIG_VALIDATION_REQUIRED',
+          'The draft must pass server-side validation before publication.',
+        );
+      }
+      await transaction`
+        UPDATE platform_config_versions
+        SET status = 'superseded', superseded_at = now(), updated_at = now()
+        WHERE status = 'active'
+      `;
+      const rows = await transaction<Array<Record<string, unknown>>>`
+        UPDATE platform_config_versions
+        SET
+          status = 'active',
+          activated_by = ${actorId},
+          activated_at = now(),
+          superseded_at = NULL,
+          updated_by = ${actorId},
+          updated_at = now()
+        WHERE id = ${configId}
+        RETURNING *
+      `;
+      return mapConfigVersion(rows[0]);
+    });
+  }
+
+  public async rollbackConfigVersion(input: {
+    sourceConfigId: string;
+    actorId: string;
+    changeSummary: string;
+  }): Promise<PlatformConfigVersionRecord> {
+    return this.sql.begin(async (transaction) => {
+      await transaction`SELECT pg_advisory_xact_lock(73492817)`;
+      const sources = await transaction<Array<Record<string, unknown>>>`
+        SELECT *
+        FROM platform_config_versions
+        WHERE id = ${input.sourceConfigId}
+        FOR UPDATE
+      `;
+      const source = sources[0] ? mapConfigVersion(sources[0]) : undefined;
+      if (!source || source.status === 'draft' || !source.validation.valid) {
+        throw new GovernanceConflictError(
+          'CONFIG_ROLLBACK_SOURCE_INVALID',
+          'Rollback requires a validated active or superseded configuration version.',
+        );
+      }
+      const active = await transaction<Array<{ id: string; checksum: string }>>`
+        SELECT id, checksum
+        FROM platform_config_versions
+        WHERE status = 'active'
+        FOR UPDATE
+      `;
+      if (active[0]?.checksum === source.checksum) {
+        throw new GovernanceConflictError(
+          'CONFIG_ROLLBACK_NO_CHANGE',
+          'The selected configuration is already active.',
+        );
+      }
+      const versions = await transaction<Array<{ version: number }>>`
+        SELECT coalesce(max(version), 0)::int + 1 AS version
+        FROM platform_config_versions
+      `;
+      await transaction`
+        UPDATE platform_config_versions
+        SET status = 'superseded', superseded_at = now(), updated_at = now()
+        WHERE status = 'active'
+      `;
+      const rows = await transaction<Array<Record<string, unknown>>>`
+        INSERT INTO platform_config_versions (
+          version,
+          checksum,
+          status,
+          configuration,
+          description,
+          change_summary,
+          base_version,
+          validation,
+          created_by,
+          updated_by,
+          activated_by,
+          activated_at
+        ) VALUES (
+          ${versions[0]?.version ?? 1},
+          ${source.checksum},
+          'active',
+          ${transaction.json(toJsonValue(source.configuration))},
+          ${`Rollback to configuration version ${source.version}.`},
+          ${input.changeSummary},
+          ${source.version},
+          ${transaction.json(toJsonValue(source.validation))},
+          ${input.actorId},
+          ${input.actorId},
+          ${input.actorId},
+          now()
+        )
+        RETURNING *
+      `;
+      return mapConfigVersion(rows[0]);
+    });
+  }
+
   private async listAlerts(limit: number): Promise<OperationalAlertRecord[]> {
     const rows = await this.sql<Array<Record<string, unknown>>>`
       SELECT
@@ -664,6 +918,44 @@ function mapOperation(row: Record<string, unknown> | undefined): AdminOperationR
   };
 }
 
+function mapConfigVersion(row: Record<string, unknown> | undefined): PlatformConfigVersionRecord {
+  if (!row) throw new Error('Platform configuration query returned no row.');
+  const validation = asRecord(row.validation);
+  return {
+    id: String(row.id),
+    version: Number(row.version),
+    checksum: String(row.checksum),
+    status: row.status as PlatformConfigVersionRecord['status'],
+    configuration: asRecord(row.configuration),
+    description: scalarText(row.description),
+    changeSummary: scalarText(row.changeSummary ?? row.change_summary),
+    ...((row.baseVersion ?? row.base_version)
+      ? { baseVersion: Number(row.baseVersion ?? row.base_version) }
+      : {}),
+    validation: {
+      valid: validation.valid === true,
+      errors: stringArray(validation.errors),
+      warnings: stringArray(validation.warnings),
+      validatedAt: scalarText(validation.validatedAt),
+    },
+    createdBy: scalarText(row.createdBy ?? row.created_by),
+    createdAt: asIso(row.createdAt ?? row.created_at),
+    ...((row.updatedBy ?? row.updated_by)
+      ? { updatedBy: scalarText(row.updatedBy ?? row.updated_by) }
+      : {}),
+    updatedAt: asIso(row.updatedAt ?? row.updated_at),
+    ...((row.activatedBy ?? row.activated_by)
+      ? { activatedBy: scalarText(row.activatedBy ?? row.activated_by) }
+      : {}),
+    ...((row.activatedAt ?? row.activated_at)
+      ? { activatedAt: asIso(row.activatedAt ?? row.activated_at) }
+      : {}),
+    ...((row.supersededAt ?? row.superseded_at)
+      ? { supersededAt: asIso(row.supersededAt ?? row.superseded_at) }
+      : {}),
+  };
+}
+
 function normalizeDates(rows: Array<Record<string, unknown>>): Array<Record<string, unknown>> {
   return rows.map(normalizeRecord);
 }
@@ -707,4 +999,10 @@ function scalarText(value: unknown, fallback = ''): string {
     return String(value);
   }
   return fallback;
+}
+
+function stringArray(value: unknown): string[] {
+  return Array.isArray(value)
+    ? value.filter((item): item is string => typeof item === 'string')
+    : [];
 }

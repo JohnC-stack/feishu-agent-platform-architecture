@@ -76,7 +76,7 @@ try {
     Set-ActiveJunction -LinkPath (Join-Path $install 'current\worker') -TargetPath (Join-Path $targetRelease 'worker') -AllowedRoot $install
     Start-Service -Name 'FeishuAgentGateway', 'FeishuAgentWorker'
     Start-Sleep -Seconds 2
-    & (Join-Path $PSScriptRoot 'Test-WindowsServices.ps1') -ClientCertificateThumbprint $ClientCertificateThumbprint -TimeoutSeconds $HealthTimeoutSeconds | Out-Null
+    & (Join-Path $PSScriptRoot 'Test-WindowsServices.ps1') -ClientCertificateThumbprint $ClientCertificateThumbprint -DataRoot $data -TimeoutSeconds $HealthTimeoutSeconds | Out-Null
 }
 catch {
     Stop-Service -Name 'FeishuAgentGateway', 'FeishuAgentWorker' -Force -ErrorAction SilentlyContinue

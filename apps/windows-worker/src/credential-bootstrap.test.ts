@@ -31,4 +31,42 @@ describe('P5 Windows Worker credential bootstrap', () => {
       ),
     ).rejects.toThrow('empty');
   });
+
+  it('resolves file credentials from explicitly allowed service secret roots', async () => {
+    const environment = {
+      GITLAB_TOKEN: 'filecred://D:/FeishuAgent/data/secrets/gitlab-token',
+      CREDENTIAL_FILE_ROOTS: 'D:/FeishuAgent/data/secrets',
+    };
+    const resolve = vi.fn(() => Promise.resolve(new ProtectedCredential('resolved-token')));
+
+    const result = await resolveCredentialEnvironment(environment, { resolve });
+
+    expect(environment.GITLAB_TOKEN).toBe('resolved-token');
+    expect(result).toEqual({ resolvedNames: ['GITLAB_TOKEN'] });
+    expect(resolve).toHaveBeenCalledWith({
+      name: 'gitlab_token',
+      provider: 'file_secret',
+      target: 'D:/FeishuAgent/data/secrets/gitlab-token',
+    });
+  });
+
+  it('resolves a Confluence service password without exposing it in bootstrap metadata', async () => {
+    const environment = {
+      CONFLUENCE_PASSWORD: 'filecred://D:/FeishuAgent/data/secrets/confluence-password',
+      CREDENTIAL_FILE_ROOTS: 'D:/FeishuAgent/data/secrets',
+    };
+    const resolve = vi.fn(() => Promise.resolve(new ProtectedCredential('resolved-password')));
+
+    const result = await resolveCredentialEnvironment(environment, { resolve });
+
+    expect(environment.CONFLUENCE_PASSWORD).toBe('resolved-password');
+    expect(result).toEqual({ resolvedNames: ['CONFLUENCE_PASSWORD'] });
+    expect(JSON.stringify(result)).not.toContain('resolved-password');
+  });
+
+  it('rejects invalid file permission policy values before worker startup', async () => {
+    await expect(
+      resolveCredentialEnvironment({ CREDENTIAL_FILE_ENFORCE_POSIX_PERMISSIONS: 'sometimes' }),
+    ).rejects.toThrow('must be true or false');
+  });
 });

@@ -4,7 +4,7 @@
 
 本文用于 Windows 原生执行面与 Hyper-V Linux Docker 控制面的日常检查、启停、发布、回滚、备份和故障定位。P7 验收主机使用 Windows 11 Pro 25H2；目标生产环境仍应使用公司批准的 Windows Server、企业 CA 和专用服务账号基线。
 
-P7 已于 2026-08-26 完成实机验收。当前活动版本为 `0.7.0-p7rc1`，`API_AGENT_ENABLED=false`，OpenAI API/ReAct 通道不参与路由、就绪检查或回退。
+P7 已于 2026-08-26 完成实机验收。当前活动版本为 `0.7.2-p7-config-center-candidate1`，`API_AGENT_ENABLED=false`，OpenAI API/ReAct 通道不参与路由、就绪检查或回退。
 
 ## 2. 实际拓扑
 
@@ -61,6 +61,8 @@ Get-Service FeishuAgentGateway, FeishuAgentWorker
 
 预期结果：Control API 为 `ok`，`postgres`、`bullmq`、`windows_worker` 均为 `true`；Edge 返回 `ok`；Grafana 的 `database` 为 `ok`；两个 Windows 服务均为 `Running/Automatic`。
 
+登录管理中心后进入“系统集成”，飞书、企业 GitLab、企业 Confluence应显示“已配置”，状态来源为 Windows Worker 或“控制面 + Worker”，授权资源数不为 0。若显示“未完成”，检查 `D:\FeishuAgent\data\config\worker.env` 是否包含非空白名单和凭据引用；若显示“离线”，先检查 3200/mTLS，不要重复填写 Token。
+
 在 Linux VM 中检查控制面：
 
 ```bash
@@ -113,6 +115,8 @@ Windows 切换失败会自动恢复前一版目录联接；Linux 数据库 migra
 
 P7 的正式发布演练已在 2026-08-26 使用 `0.7.0-p7rc2` 完成。Linux 和 Windows 均从 `0.7.0-p7rc1` 升级到 rc2，通过各自健康检查与真实 `/ping` 后回滚 rc1；Windows Gateway/Worker 在升级和回滚后均通过 mTLS readiness，证书指纹未变化。最终活动版本和 6 个容器均恢复到 rc1，综合验收为 15/15。生产发布也必须保留相同顺序：发布包完整性校验 → 升级 → readiness → 端到端任务 → 回滚演练 → 再次 readiness 与端到端任务。
 
+随后配置管理中心候选版 `0.7.2-p7-config-center-candidate1` 按同一发布门禁上线：归档校验、migration、金丝雀、活动切换、静态页面、数据库唯一生效版本、管理鉴权、双健康端点和真实 `/ping` 均通过。数据库验收保留版本 1、2 的 `superseded` 历史，并由版本 3 回滚恢复基线后成为唯一 `active` 版本。
+
 ## 7. 备份与恢复
 
 执行备份前确认 PostgreSQL/Redis 健康和备份目标容量。备份必须使用 `age` 加密、生成逐文件哈希，并保存恢复报告。具体命令和干净环境恢复流程见 [`deploy/backup/README.md`](../deploy/backup/README.md)。
@@ -135,11 +139,13 @@ P7 的正式发布演练已在 2026-08-26 使用 `0.7.0-p7rc2` 完成。Linux �
 6. 提交无模型 `/ping`，确认数据库中的 route、attempt、executor events 和 audit events。
 7. 再定位飞书 WSS、企业系统、Agent CLI 或特定业务任务。
 
+企业集成的专项顺序为：Worker `/v1/integrations/status` → `LocalService` 对 `filecred://` 的读取权限 → VPN/内网路由 → 白名单只读实调。生产 Worker 不使用个人 `wincred://`、Confluence CLI 或用户 DPAPI；GitLab 和 Confluence 属于 Windows Worker 配置，不应在 Linux Control API 容器中重复保存其凭据。
+
 若无客户端证书的请求未在 TLS 握手阶段被拒绝，或 443/6379 绑定到 `0.0.0.0`，应立即停止发布并按安全事件处理。
 
 ## 9. P8 前置事项
 
 - 用企业 CA 证书替换 P7 测试 PKI并完成轮换演练。
-- 由安全团队确认 `LocalService` 是否需要切换为专用域服务账号及最小 ACL。
+- 若公司后续要求域级身份治理，可将 `LocalService` 替换为批准的 gMSA/专用域服务账号，并保持相同的最小 ACL 和凭据轮换流程。
 - 完成并发/峰值压测、Prompt 注入和越权测试、依赖故障演练、试点 UAT 与生产准入评审。
 - 保持 OpenAI API/ReAct 通道关闭，除非后续收到明确启用指令并完成独立安全与成本评审。

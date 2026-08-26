@@ -225,6 +225,10 @@ describe('P5 governance service', () => {
     await governance.initialize();
 
     expect(governance.authorizeAdminRead({ userId: 'reader-1' })).toEqual(['reader']);
+    expect(governance.authorizeConfigManagement({ userId: 'admin-1' })).toEqual(['administrator']);
+    expect(() => governance.authorizeConfigManagement({ userId: 'reader-1' })).toThrowError(
+      expect.objectContaining({ code: 'CONFIG_MANAGE_NOT_AUTHORIZED' }),
+    );
     await governance.upsertRoleBinding(
       { userId: 'admin-1' },
       { principalType: 'user', principalId: 'reader-2', roleId: 'reader' },

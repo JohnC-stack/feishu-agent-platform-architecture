@@ -1,17 +1,29 @@
 import { randomUUID } from 'node:crypto';
 
-import type { GovernanceRoleBinding, RiskLevel } from '@feishu-agent/contracts';
+import {
+  WorkerIntegrationStatusResponseSchema,
+  type GovernanceRoleBinding,
+  type RiskLevel,
+} from '@feishu-agent/contracts';
 import type {
   AdminAction,
   AdminDatabaseSnapshot,
   AdminOperationRecord,
   AdminTaskTrace,
   OperationalAlertInput,
+  PlatformConfigValidationRecord,
+  PlatformConfigVersionRecord,
 } from '@feishu-agent/database';
 import { redactSensitive } from '@feishu-agent/integrations';
 import { createEnvironmentMtlsFetch, type PlatformFetch } from '@feishu-agent/transport';
 
 import { GovernanceAuthorizationError, type GovernanceService } from './governance-service.js';
+import {
+  managedConfigCatalog,
+  managedConfigChecksum,
+  validateManagedConfiguration,
+  type ManagedConfiguration,
+} from './platform-config.js';
 import type { TaskCoordinator } from './task-coordinator.js';
 import type { TaskQueueSnapshot } from './task-queue.js';
 
@@ -35,13 +47,39 @@ export interface AdminRepositoryPort {
     result?: Record<string, unknown>;
     errorCode?: string;
   }): Promise<AdminOperationRecord>;
+  getConfigVersion(configId: string): Promise<PlatformConfigVersionRecord | undefined>;
+  getActiveConfigVersion(): Promise<PlatformConfigVersionRecord | undefined>;
+  createConfigDraft(input: {
+    checksum: string;
+    configuration: Record<string, unknown>;
+    description: string;
+    changeSummary: string;
+    createdBy: string;
+    baseVersion?: number;
+    validation: PlatformConfigValidationRecord;
+  }): Promise<PlatformConfigVersionRecord>;
+  updateConfigDraft(input: {
+    configId: string;
+    checksum: string;
+    configuration: Record<string, unknown>;
+    description: string;
+    changeSummary: string;
+    updatedBy: string;
+    validation: PlatformConfigValidationRecord;
+  }): Promise<PlatformConfigVersionRecord>;
+  publishConfigDraft(configId: string, actorId: string): Promise<PlatformConfigVersionRecord>;
+  rollbackConfigVersion(input: {
+    sourceConfigId: string;
+    actorId: string;
+    changeSummary: string;
+  }): Promise<PlatformConfigVersionRecord>;
 }
 
 export interface AdminRuntimePort {
   getQueueSnapshot(): Promise<TaskQueueSnapshot>;
-  getServiceHealth(): Promise<ServiceHealth[]>;
+  getServiceHealth(options?: { probeTimeoutMs?: number }): Promise<ServiceHealth[]>;
   getConfigSummary(): ConfigSummaryItem[];
-  getIntegrations(): IntegrationStatus[];
+  getIntegrations(options?: { probeTimeoutMs?: number }): Promise<IntegrationStatus[]>;
 }
 
 export interface ServiceHealth {
@@ -64,14 +102,16 @@ export interface ConfigSummaryItem {
 export interface IntegrationStatus {
   id: string;
   name: string;
-  status: 'ready' | 'disabled' | 'incomplete';
+  status: 'ready' | 'configured' | 'disabled' | 'incomplete' | 'offline';
   mode: string;
   resourceCount?: number;
   detail: string;
+  source?: 'control-api' | 'windows-worker' | 'combined';
+  checkedAt?: string;
 }
 
 export interface AdminSnapshot {
-  phase: 'P6';
+  phase: 'P7';
   generatedAt: string;
   viewer: { roleIds: string[]; capabilities: AdminConsoleCapabilities };
   summary: {
@@ -88,6 +128,12 @@ export interface AdminSnapshot {
   services: ServiceHealth[];
   integrations: IntegrationStatus[];
   configuration: ConfigSummaryItem[];
+  managedConfiguration: {
+    catalog: ReadonlyArray<(typeof managedConfigCatalog)[number]>;
+    effective: Partial<ManagedConfiguration>;
+    source: 'bootstrap' | 'database';
+    activeVersion?: number;
+  };
   data: AdminDatabaseSnapshot;
 }
 
@@ -257,27 +303,45 @@ export class AdminService {
 
   public async snapshot(identity: AdminIdentity, limit = 50): Promise<AdminSnapshot> {
     const { roleIds, capabilities } = this.consoleAccess(identity);
-    const [initialData, queue, services] = await Promise.all([
+    const activeConfig = await this.repository.getActiveConfigVersion();
+    const managedConfiguration = activeConfig
+      ? validateManagedConfiguration(activeConfig.configuration).configuration
+      : undefined;
+    const runtimeOptions = managedConfiguration
+      ? { probeTimeoutMs: managedConfiguration['health.serviceProbeTimeoutMs'] }
+      : undefined;
+    const [initialData, queue, services, integrations] = await Promise.all([
       this.repository.getSnapshot(limit),
       this.runtime.getQueueSnapshot(),
-      this.runtime.getServiceHealth(),
+      this.runtime.getServiceHealth(runtimeOptions),
+      capabilities.allowedPages.includes('integrations')
+        ? this.runtime.getIntegrations(runtimeOptions)
+        : Promise.resolve([]),
     ]);
-    await this.repository.reconcileAlerts(this.evaluateAlerts(initialData, queue, services));
+    await this.repository.reconcileAlerts(
+      this.evaluateAlerts(initialData, queue, services, managedConfiguration),
+    );
     const fullData = await this.repository.getSnapshot(limit);
     const data = filterSnapshotData(fullData, capabilities.allowedPages);
     const snapshot: AdminSnapshot = {
-      phase: 'P6',
+      phase: 'P7',
       generatedAt: new Date().toISOString(),
       viewer: { roleIds, capabilities },
       summary: summarize(fullData, queue),
       queue,
       services,
-      integrations: capabilities.allowedPages.includes('integrations')
-        ? this.runtime.getIntegrations()
-        : [],
+      integrations,
       configuration: capabilities.allowedPages.includes('config')
         ? this.runtime.getConfigSummary()
         : [],
+      managedConfiguration: capabilities.allowedPages.includes('config')
+        ? {
+            catalog: managedConfigCatalog,
+            effective: managedConfiguration ?? {},
+            source: activeConfig ? 'database' : 'bootstrap',
+            ...(activeConfig ? { activeVersion: activeConfig.version } : {}),
+          }
+        : { catalog: [], effective: {}, source: 'bootstrap' },
       data,
     };
     return redactSensitive(snapshot) as AdminSnapshot;
@@ -429,21 +493,172 @@ export class AdminService {
     return { acknowledged };
   }
 
+  public validateConfig(
+    identity: AdminIdentity,
+    configuration: Record<string, unknown>,
+  ): ReturnType<typeof validateManagedConfiguration> & {
+    catalog: ReadonlyArray<(typeof managedConfigCatalog)[number]>;
+  } {
+    this.authorizeConfigManagement(identity);
+    return { ...validateManagedConfiguration(configuration), catalog: managedConfigCatalog };
+  }
+
+  public async createConfigDraft(
+    identity: AdminIdentity,
+    input: {
+      configuration: Record<string, unknown>;
+      description: string;
+      changeSummary: string;
+      baseVersion?: number;
+    },
+  ): Promise<PlatformConfigVersionRecord> {
+    const roleIds = this.authorizeConfigManagement(identity);
+    const validation = validateManagedConfiguration(input.configuration);
+    assertValidManagedConfiguration(validation);
+    const draft = await this.repository.createConfigDraft({
+      checksum: managedConfigChecksum(validation.configuration),
+      configuration: validation.configuration,
+      description: input.description,
+      changeSummary: input.changeSummary,
+      createdBy: identity.actorId,
+      ...(input.baseVersion ? { baseVersion: input.baseVersion } : {}),
+      validation: toStoredValidation(validation),
+    });
+    await this.governance.recordAdminAudit({
+      correlationId: randomUUID(),
+      actorId: identity.actorId,
+      action: 'config.draft.create',
+      resourceType: 'platform_config_version',
+      resourceId: draft.id,
+      outcome: 'succeeded',
+      details: { roleIds, version: draft.version, checksum: draft.checksum },
+    });
+    return draft;
+  }
+
+  public async updateConfigDraft(
+    identity: AdminIdentity,
+    configId: string,
+    input: {
+      configuration: Record<string, unknown>;
+      description: string;
+      changeSummary: string;
+    },
+  ): Promise<PlatformConfigVersionRecord> {
+    const roleIds = this.authorizeConfigManagement(identity);
+    const validation = validateManagedConfiguration(input.configuration);
+    assertValidManagedConfiguration(validation);
+    const draft = await this.repository.updateConfigDraft({
+      configId,
+      checksum: managedConfigChecksum(validation.configuration),
+      configuration: validation.configuration,
+      description: input.description,
+      changeSummary: input.changeSummary,
+      updatedBy: identity.actorId,
+      validation: toStoredValidation(validation),
+    });
+    await this.governance.recordAdminAudit({
+      correlationId: randomUUID(),
+      actorId: identity.actorId,
+      action: 'config.draft.update',
+      resourceType: 'platform_config_version',
+      resourceId: draft.id,
+      outcome: 'succeeded',
+      details: { roleIds, version: draft.version, checksum: draft.checksum },
+    });
+    return draft;
+  }
+
+  public async publishConfigDraft(
+    identity: AdminIdentity,
+    configId: string,
+    confirmation: string,
+  ): Promise<PlatformConfigVersionRecord> {
+    const roleIds = this.authorizeConfigManagement(identity);
+    const draft = await this.repository.getConfigVersion(configId);
+    if (!draft || draft.status !== 'draft') {
+      throw new AdminValidationError('只能发布现有草稿配置。');
+    }
+    const expected = configPublishConfirmation(draft.version);
+    if (confirmation !== expected) {
+      throw new AdminValidationError(`确认文本必须完全匹配：${expected}`);
+    }
+    const validation = validateManagedConfiguration(draft.configuration);
+    assertValidManagedConfiguration(validation);
+    if (managedConfigChecksum(validation.configuration) !== draft.checksum) {
+      throw new AdminValidationError('配置校验和已变化，请重新保存草稿后再发布。');
+    }
+    const published = await this.repository.publishConfigDraft(configId, identity.actorId);
+    await this.governance.recordAdminAudit({
+      correlationId: randomUUID(),
+      actorId: identity.actorId,
+      action: 'config.publish',
+      resourceType: 'platform_config_version',
+      resourceId: published.id,
+      outcome: 'succeeded',
+      details: { roleIds, version: published.version, checksum: published.checksum },
+    });
+    return published;
+  }
+
+  public async rollbackConfigVersion(
+    identity: AdminIdentity,
+    sourceConfigId: string,
+    input: { confirmation: string; changeSummary: string },
+  ): Promise<PlatformConfigVersionRecord> {
+    const roleIds = this.authorizeConfigManagement(identity);
+    const source = await this.repository.getConfigVersion(sourceConfigId);
+    if (!source || source.status === 'draft') {
+      throw new AdminValidationError('只能回滚到已发布的配置版本。');
+    }
+    const expected = configRollbackConfirmation(source.version);
+    if (input.confirmation !== expected) {
+      throw new AdminValidationError(`确认文本必须完全匹配：${expected}`);
+    }
+    const rolledBack = await this.repository.rollbackConfigVersion({
+      sourceConfigId,
+      actorId: identity.actorId,
+      changeSummary: input.changeSummary,
+    });
+    await this.governance.recordAdminAudit({
+      correlationId: randomUUID(),
+      actorId: identity.actorId,
+      action: 'config.rollback',
+      resourceType: 'platform_config_version',
+      resourceId: rolledBack.id,
+      outcome: 'succeeded',
+      details: {
+        roleIds,
+        sourceVersion: source.version,
+        activatedVersion: rolledBack.version,
+        checksum: rolledBack.checksum,
+      },
+    });
+    return rolledBack;
+  }
+
   private evaluateAlerts(
     data: AdminDatabaseSnapshot,
     queue: TaskQueueSnapshot,
     services: ServiceHealth[],
+    managedConfiguration?: ManagedConfiguration,
   ): OperationalAlertInput[] {
     const alerts: OperationalAlertInput[] = [];
-    if (queue.waiting >= this.thresholds.queueWaiting) {
+    const queueWaiting =
+      managedConfiguration?.['alerts.queueWaitingThreshold'] ?? this.thresholds.queueWaiting;
+    const budgetPercent =
+      managedConfiguration?.['alerts.budgetPercentThreshold'] ?? this.thresholds.budgetPercent;
+    const failedTaskThreshold = managedConfiguration?.['alerts.failedTaskThreshold'] ?? 1;
+    const modelFailureThreshold = managedConfiguration?.['alerts.modelFailureThreshold'] ?? 1;
+    if (queue.waiting >= queueWaiting) {
       alerts.push({
         key: 'queue:waiting:high',
         severity: 'warning',
         category: 'queue',
         title: '任务队列积压',
-        message: `等待任务达到 ${queue.waiting}，阈值为 ${this.thresholds.queueWaiting}。`,
+        message: `等待任务达到 ${queue.waiting}，阈值为 ${queueWaiting}。`,
         source: 'bullmq',
-        details: { waiting: queue.waiting, threshold: this.thresholds.queueWaiting },
+        details: { waiting: queue.waiting, threshold: queueWaiting },
       });
     }
     for (const service of services.filter((item) => item.status !== 'ok')) {
@@ -458,13 +673,13 @@ export class AdminService {
       });
     }
     const failed = data.taskCounts.failed ?? 0;
-    if (failed > 0) {
+    if (failed >= failedTaskThreshold) {
       alerts.push({
         key: 'tasks:failed:present',
         severity: 'warning',
         category: 'task',
         title: '存在失败任务',
-        message: `当前累计失败任务 ${failed} 个，请通过 Trace 定位。`,
+        message: `当前累计失败任务 ${failed} 个，阈值为 ${failedTaskThreshold}，请通过 Trace 定位。`,
         source: 'control-api',
         details: { failed },
       });
@@ -476,13 +691,13 @@ export class AdminService {
           scalarText(run.executor ?? run.requestedExecutor).toLowerCase(),
         ),
     );
-    if (modelFailures.length > 0) {
+    if (modelFailures.length >= modelFailureThreshold) {
       alerts.push({
         key: 'executor:model:failed',
         severity: 'critical',
         category: 'model',
         title: '模型执行失败',
-        message: `最近查询范围内有 ${modelFailures.length} 次模型执行失败，请检查执行器日志与 Trace。`,
+        message: `最近查询范围内有 ${modelFailures.length} 次模型执行失败，阈值为 ${modelFailureThreshold}，请检查执行器日志与 Trace。`,
         source: 'executor-runtime',
         details: { failedRuns: modelFailures.length },
       });
@@ -491,7 +706,7 @@ export class AdminService {
       const tokenLimit = Number(budget.tokenLimit ?? 0);
       const tokensUsed = Number(budget.tokensUsed ?? 0);
       const percent = tokenLimit > 0 ? Math.round((tokensUsed / tokenLimit) * 100) : 0;
-      if (percent >= this.thresholds.budgetPercent) {
+      if (percent >= budgetPercent) {
         const scopeType = scalarText(budget.scopeType, 'unknown');
         const scopeId = scalarText(budget.scopeId, 'unknown');
         const period = scalarText(budget.period);
@@ -566,6 +781,13 @@ export class AdminService {
     };
   }
 
+  private authorizeConfigManagement(identity: AdminIdentity): string[] {
+    return this.governance.authorizeConfigManagement({
+      userId: identity.actorId,
+      groupIds: identity.groupIds,
+    });
+  }
+
   private pruneSessions(): void {
     const now = Date.now();
     for (const [token, session] of this.sessions) {
@@ -576,6 +798,14 @@ export class AdminService {
 
 export function confirmationText(action: AdminAction, targetId: string): string {
   return `确认${actionSpecifications[action].label}:${targetId}`;
+}
+
+export function configPublishConfirmation(version: number): string {
+  return `发布配置版本:${version}`;
+}
+
+export function configRollbackConfirmation(version: number): string {
+  return `回滚配置至版本:${version}`;
 }
 
 function buildConsoleCapabilities(
@@ -674,17 +904,40 @@ function validateManagedRole(roleId: string): void {
   }
 }
 
+function assertValidManagedConfiguration(
+  validation: ReturnType<typeof validateManagedConfiguration>,
+): void {
+  if (!validation.valid) {
+    throw new AdminValidationError(validation.errors.join('；'));
+  }
+}
+
+function toStoredValidation(
+  validation: ReturnType<typeof validateManagedConfiguration>,
+): PlatformConfigValidationRecord {
+  return {
+    valid: validation.valid,
+    errors: validation.errors,
+    warnings: validation.warnings,
+    validatedAt: validation.validatedAt,
+  };
+}
+
 export function createAdminRuntime(input: {
   queue: { getSnapshot(): Promise<TaskQueueSnapshot> };
   environment?: NodeJS.ProcessEnv;
 }): AdminRuntimePort {
   const environment = input.environment ?? process.env;
-  const probeTimeoutMs = readPositiveInteger(environment.ADMIN_SERVICE_PROBE_TIMEOUT_MS, 2_500);
+  const defaultProbeTimeoutMs = readPositiveInteger(
+    environment.ADMIN_SERVICE_PROBE_TIMEOUT_MS,
+    2_500,
+  );
   const serviceTransport = createEnvironmentMtlsFetch('WINDOWS_SERVICE', environment);
   return {
     getQueueSnapshot: () => input.queue.getSnapshot(),
-    getServiceHealth: () =>
-      Promise.all([
+    getServiceHealth: (options) => {
+      const probeTimeoutMs = options?.probeTimeoutMs ?? defaultProbeTimeoutMs;
+      return Promise.all([
         Promise.resolve({
           service: 'control-api',
           status: 'ok' as const,
@@ -705,9 +958,15 @@ export function createAdminRuntime(input: {
           probeTimeoutMs,
           serviceTransport,
         ),
-      ]),
+      ]);
+    },
     getConfigSummary: () => buildConfigSummary(environment),
-    getIntegrations: () => buildIntegrations(environment),
+    getIntegrations: (options) =>
+      buildIntegrations(
+        environment,
+        serviceTransport,
+        options?.probeTimeoutMs ?? defaultProbeTimeoutMs,
+      ),
   };
 }
 
@@ -751,9 +1010,6 @@ function buildConfigSummary(environment: NodeJS.ProcessEnv): ConfigSummaryItem[]
     ['运行时', 'REDIS_URL', true],
     ['飞书', 'FEISHU_APP_ID', true],
     ['飞书', 'FEISHU_APP_SECRET', true],
-    ['GitLab', 'GITLAB_BASE_URL', false],
-    ['GitLab', 'GITLAB_TOKEN', true],
-    ['Confluence', 'CONFLUENCE_CLI_WRAPPER', false],
     ['执行器', 'WINDOWS_WORKER_URL', false],
     ['执行器', 'API_AGENT_ENABLED', true],
     ['管理台', 'ADMIN_LOCAL_BOOTSTRAP_ENABLED', true],
@@ -767,7 +1023,7 @@ function buildConfigSummary(environment: NodeJS.ProcessEnv): ConfigSummaryItem[]
       group,
       key,
       configured: Boolean(value),
-      source: value.startsWith('wincred://')
+      source: /^(filecred|wincred|vault):\/\//iu.test(value)
         ? 'credential_reference'
         : value
           ? 'environment'
@@ -777,46 +1033,87 @@ function buildConfigSummary(environment: NodeJS.ProcessEnv): ConfigSummaryItem[]
   });
 }
 
-function buildIntegrations(environment: NodeJS.ProcessEnv): IntegrationStatus[] {
+async function buildIntegrations(
+  environment: NodeJS.ProcessEnv,
+  transport: PlatformFetch,
+  timeoutMs: number,
+): Promise<IntegrationStatus[]> {
+  const workerUrl = environment.WINDOWS_WORKER_URL ?? 'http://127.0.0.1:3200';
+  const workerStatus = await readWorkerIntegrations(workerUrl, transport, timeoutMs);
+  const workerItems = workerStatus?.integrations ?? [];
+  const byId = new Map(workerItems.map((item) => [item.id, item]));
+  const unavailable = workerStatus === undefined;
+  const workerIntegration = (
+    id: 'gitlab' | 'confluence',
+    name: string,
+    mode: string,
+    detail: string,
+  ): IntegrationStatus => {
+    const item = byId.get(id);
+    return {
+      id,
+      name,
+      status: unavailable ? 'offline' : item?.configured ? 'configured' : 'incomplete',
+      mode,
+      resourceCount: item?.resourceCount ?? 0,
+      detail: unavailable ? `${detail} Windows Worker 状态端点当前不可用。` : detail,
+      source: 'windows-worker',
+      ...(workerStatus ? { checkedAt: workerStatus.checkedAt } : {}),
+    };
+  };
+  const feishuWorker = byId.get('feishu');
+  const feishuControlConfigured = Boolean(
+    environment.FEISHU_APP_ID && environment.FEISHU_APP_SECRET,
+  );
   return [
     {
       id: 'feishu',
       name: '飞书开放平台',
-      status: environment.FEISHU_APP_ID && environment.FEISHU_APP_SECRET ? 'ready' : 'incomplete',
+      status: unavailable
+        ? 'offline'
+        : feishuControlConfigured && feishuWorker?.configured
+          ? 'configured'
+          : 'incomplete',
       mode: 'WSS + OpenAPI',
-      resourceCount:
-        countCsv(environment.FEISHU_ALLOWED_DOCUMENT_IDS) +
-        countCsv(environment.FEISHU_ALLOWED_BITABLE_APP_TOKENS) +
-        countCsv(environment.FEISHU_ALLOWED_CHAT_IDS) +
-        countCsv(environment.FEISHU_ALLOWED_USER_IDS),
-      detail: '事件长连接、文档、多维表格、群组与通讯录只读。',
+      resourceCount: feishuWorker?.resourceCount ?? 0,
+      detail: unavailable
+        ? '事件接入与只读 OpenAPI 状态无法从 Windows Worker 获取。'
+        : '事件长连接、文档、多维表格、群组与通讯录只读。',
+      source: 'combined',
+      ...(workerStatus ? { checkedAt: workerStatus.checkedAt } : {}),
     },
-    {
-      id: 'gitlab',
-      name: '企业 GitLab',
-      status: environment.GITLAB_BASE_URL && environment.GITLAB_TOKEN ? 'ready' : 'incomplete',
-      mode: 'read_api',
-      resourceCount: countCsv(environment.GITLAB_ALLOWED_PROJECTS),
-      detail: '项目、MR、差异、流水线和日志只读。',
-    },
-    {
-      id: 'confluence',
-      name: '企业 Confluence',
-      status: environment.CONFLUENCE_CLI_WRAPPER ? 'ready' : 'incomplete',
-      mode: 'CLI + REST',
-      resourceCount:
-        countCsv(environment.CONFLUENCE_ALLOWED_SPACE_KEYS) +
-        countCsv(environment.CONFLUENCE_ALLOWED_PAGE_IDS),
-      detail: 'CQL、页面、附件元数据和评论只读。',
-    },
+    workerIntegration('gitlab', '企业 GitLab', 'read_api', '项目、MR、差异、流水线和日志只读。'),
+    workerIntegration(
+      'confluence',
+      '企业 Confluence',
+      '受限 REST 会话',
+      'CQL、页面、附件元数据和评论只读。',
+    ),
     {
       id: 'api-agent',
       name: 'API/ReAct',
       status: environment.API_AGENT_ENABLED?.toLowerCase() === 'true' ? 'ready' : 'disabled',
       mode: 'Feature flag',
       detail: '按当前决策保持关闭，不参与路由、就绪或回退。',
+      source: 'control-api',
     },
   ];
+}
+
+async function readWorkerIntegrations(
+  baseUrl: string,
+  transport: PlatformFetch,
+  timeoutMs: number,
+): Promise<ReturnType<typeof WorkerIntegrationStatusResponseSchema.parse> | undefined> {
+  try {
+    const response = await transport(`${baseUrl.replace(/\/$/u, '')}/v1/integrations/status`, {
+      signal: AbortSignal.timeout(timeoutMs),
+    });
+    if (!response.ok) return undefined;
+    return WorkerIntegrationStatusResponseSchema.parse(await response.json());
+  } catch {
+    return undefined;
+  }
 }
 
 function summarize(
@@ -843,15 +1140,6 @@ function summarize(
     tokensUsed: budgetTotals.tokens,
     costMicrosUsed: budgetTotals.cost,
   };
-}
-
-function countCsv(value: string | undefined): number {
-  return new Set(
-    (value ?? '')
-      .split(',')
-      .map((item) => item.trim())
-      .filter(Boolean),
-  ).size;
 }
 
 export function readAdminThresholds(environment: NodeJS.ProcessEnv = process.env): AdminThresholds {

@@ -24,6 +24,26 @@ foreach ($templateName in @('service.gateway.xml.template', 'service.worker.xml.
         if (-not $template.Contains($token)) { $errors.Add("$templateName is missing $token.") }
     }
 }
+$workerEnvironment = Get-Content -LiteralPath (Join-Path $PSScriptRoot 'worker.env.example') -Raw
+foreach ($token in @(
+    'replace-with-feishu-app-id',
+    'replace-with-gitlab-base-url',
+    'replace-with-gitlab-token-reference',
+    'replace-with-gitlab-projects',
+    'replace-with-confluence-base-url',
+    'replace-with-confluence-username',
+    'replace-with-confluence-password-reference',
+    'replace-with-confluence-cli-wrapper',
+    'replace-with-confluence-space-keys'
+)) {
+    if (-not $workerEnvironment.Contains($token)) { $errors.Add("worker.env.example is missing $token.") }
+}
+if ($workerEnvironment -notmatch 'FEISHU_APP_SECRET=filecred://') {
+    $errors.Add('worker.env.example must use a file credential reference for FEISHU_APP_SECRET.')
+}
+if ($workerEnvironment -notmatch 'CONFLUENCE_PASSWORD=replace-with-confluence-password-reference') {
+    $errors.Add('worker.env.example must expose the staged Confluence password reference.')
+}
 if ($errors.Count -gt 0) { throw ($errors -join [Environment]::NewLine) }
 
 [pscustomobject]@{

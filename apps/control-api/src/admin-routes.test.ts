@@ -4,7 +4,7 @@ import { createControlApi } from './app.js';
 import type { AdminService } from './admin-service.js';
 import type { FeishuOAuthService } from './feishu-oauth-service.js';
 
-describe('P6 admin routes', () => {
+describe('P7 admin routes', () => {
   it('requires an explicit governed administrator identity', async () => {
     const snapshot = vi.fn();
     const admin = { snapshot, canUseManualIdentity: vi.fn(() => true) } as unknown as AdminService;
@@ -18,9 +18,9 @@ describe('P6 admin routes', () => {
     expect(snapshot).not.toHaveBeenCalled();
   });
 
-  it('returns the P6 snapshot for an authorized identity header', async () => {
+  it('returns the P7 snapshot for an authorized identity header', async () => {
     const snapshot = vi.fn(() =>
-      Promise.resolve({ phase: 'P6', generatedAt: '2026-08-21T00:00:00.000Z' }),
+      Promise.resolve({ phase: 'P7', generatedAt: '2026-08-21T00:00:00.000Z' }),
     );
     const admin = { snapshot, canUseManualIdentity: vi.fn(() => true) } as unknown as AdminService;
     const app = createControlApi({ admin });
@@ -33,7 +33,7 @@ describe('P6 admin routes', () => {
     await app.close();
 
     expect(response.statusCode).toBe(200);
-    expect(response.json()).toMatchObject({ phase: 'P6' });
+    expect(response.json()).toMatchObject({ phase: 'P7' });
     expect(snapshot).toHaveBeenCalledWith({ actorId: 'admin-user', groupIds: ['group-a'] }, 25);
   });
 
@@ -57,7 +57,7 @@ describe('P6 admin routes', () => {
 
   it('resolves an opaque bearer session before calling an administrative route', async () => {
     const resolveAdminSession = vi.fn(() => ({ actorId: 'local-admin' }));
-    const snapshot = vi.fn(() => Promise.resolve({ phase: 'P6' }));
+    const snapshot = vi.fn(() => Promise.resolve({ phase: 'P7' }));
     const admin = { resolveAdminSession, snapshot } as unknown as AdminService;
     const app = createControlApi({ admin });
 
@@ -243,4 +243,76 @@ describe('P6 admin routes', () => {
     expect(logoutResponse.headers['set-cookie']).toContain('Max-Age=0');
     expect(revokeSession).toHaveBeenCalledWith('opaque-feishu-session');
   });
+
+  it('exposes the governed configuration draft, publish and rollback lifecycle', async () => {
+    const resolveAdminSession = vi.fn(() => ({ actorId: 'ou_super_admin' }));
+    const validateConfig = vi.fn((_identity, configuration) => ({
+      valid: true,
+      configuration,
+      errors: [],
+      warnings: [],
+    }));
+    const createConfigDraft = vi.fn(() =>
+      Promise.resolve({ id: configId, version: 1, status: 'draft' }),
+    );
+    const publishConfigDraft = vi.fn(() =>
+      Promise.resolve({ id: configId, version: 1, status: 'active' }),
+    );
+    const rollbackConfigVersion = vi.fn(() =>
+      Promise.resolve({ id: rollbackId, version: 2, status: 'active', baseVersion: 1 }),
+    );
+    const admin = {
+      resolveAdminSession,
+      validateConfig,
+      createConfigDraft,
+      publishConfigDraft,
+      rollbackConfigVersion,
+    } as unknown as AdminService;
+    const app = createControlApi({ admin });
+    const headers = { authorization: 'Bearer opaque-super-admin-session' };
+    const configuration = { 'alerts.queueWaitingThreshold': 25 };
+
+    const validateResponse = await app.inject({
+      method: 'POST',
+      url: '/v1/admin/config/validate',
+      headers,
+      payload: { configuration },
+    });
+    const draftResponse = await app.inject({
+      method: 'POST',
+      url: '/v1/admin/config/versions',
+      headers,
+      payload: { configuration, description: '告警基线', changeSummary: '初始配置' },
+    });
+    const publishResponse = await app.inject({
+      method: 'POST',
+      url: `/v1/admin/config/versions/${configId}/publish`,
+      headers,
+      payload: { confirmation: '发布配置版本:1' },
+    });
+    const rollbackResponse = await app.inject({
+      method: 'POST',
+      url: `/v1/admin/config/versions/${configId}/rollback`,
+      headers,
+      payload: { confirmation: '回滚配置至版本:1', changeSummary: '回滚验收' },
+    });
+    await app.close();
+
+    expect(validateResponse.statusCode).toBe(200);
+    expect(draftResponse.statusCode).toBe(201);
+    expect(publishResponse.statusCode).toBe(200);
+    expect(rollbackResponse.statusCode).toBe(200);
+    expect(createConfigDraft).toHaveBeenCalledWith(
+      { actorId: 'ou_super_admin' },
+      expect.objectContaining({ configuration, description: '告警基线' }),
+    );
+    expect(publishConfigDraft).toHaveBeenCalledWith(
+      { actorId: 'ou_super_admin' },
+      configId,
+      '发布配置版本:1',
+    );
+  });
 });
+
+const configId = '60000000-0000-4000-8000-000000000001';
+const rollbackId = '60000000-0000-4000-8000-000000000002';

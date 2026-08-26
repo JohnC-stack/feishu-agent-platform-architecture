@@ -14,6 +14,6 @@
 4. 把 `production.env.example` 复制为 `/opt/feishu-agent/production.env`，配置文件只保存非敏感值；
 5. 把密钥放入 `/opt/feishu-agent/secrets`、证书放入 `/opt/feishu-agent/tls`，属组设为 `feishu-agent-secrets`，权限设为 `0440`；Compose 仅将该只读组加入实际使用 Secret 的容器；
 6. 设置明确来源后运行 `Configure-LinuxFirewall.sh`；
-7. 运行 `Deploy-LinuxRelease.sh <version>`。脚本依次执行配置校验、镜像构建、数据库迁移、无消费队列的 canary、健康检查和正式切换。
+7. 使用 `bash Deploy-LinuxRelease.sh <version>`。脚本会再次规范仓库内 `.sh` 的执行位，然后依次执行配置校验、镜像构建、数据库迁移、无消费队列的 canary、健康检查和正式切换。
 
 回滚只切回上一版本应用镜像；数据库 migration 必须保持向后兼容，禁止依赖自动降级 SQL。所有第三方镜像都固定版本和摘要。

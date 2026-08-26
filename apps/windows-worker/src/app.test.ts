@@ -50,6 +50,15 @@ describe('windows-worker', () => {
         executors: ['direct_tool', 'agent_cli'],
         capabilities: { apiAgentEnabled: false, apiAgentConfigured: false },
       });
+      const integrations = await app.inject({ method: 'GET', url: '/v1/integrations/status' });
+      expect(integrations.statusCode).toBe(200);
+      expect(integrations.json()).toMatchObject({
+        service: 'windows-worker',
+        integrations: expect.arrayContaining([
+          { id: 'gitlab', configured: false, resourceCount: 0 },
+          { id: 'confluence', configured: false, resourceCount: 0 },
+        ]),
+      });
       expect(ready.statusCode).toBe(200);
       expect(ready.json<{ checks: Array<{ name: string }> }>().checks).not.toContainEqual(
         expect.objectContaining({ name: 'api_agent' }),

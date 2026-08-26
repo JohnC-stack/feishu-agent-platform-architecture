@@ -4,20 +4,28 @@ import {
   AdminApiError,
   acknowledgeAlert,
   beginFeishuLogin,
+  createConfigDraft,
   deleteRoleBinding,
   fetchAdminAuthConfig,
   fetchAdminSnapshot,
   fetchTaskTrace,
   logoutAdminSession,
+  publishConfigDraft,
+  rollbackConfigVersion,
   restoreAdminSession,
   submitAdminAction,
   upsertRoleBinding,
+  updateConfigDraft,
+  validateManagedConfig,
   type AdminAuthConfig,
   type AdminPageId,
   type AdminIdentity,
   type AdminOperation,
   type AdminSnapshot,
   type AlertRecord,
+  type ConfigValidation,
+  type ConfigVersion,
+  type ManagedConfiguration,
   type RoleBindingInput,
   type TaskTrace,
 } from './admin-api.js';
@@ -52,7 +60,7 @@ const pageDescriptions: Record<PageId, string> = {
   budgets: '按用户、群组、任务和模型观察 Token 与成本预算消耗。',
   trace: '从飞书来源事件追踪到任务、执行器、工具事件、错误和审计记录。',
   alerts: '集中处置队列、服务、模型、任务与预算告警，并保留确认记录。',
-  config: '仅展示安全配置摘要、配置来源和重启要求，不返回任何 Secret。',
+  config: '管理非敏感运行参数的草稿、校验、发布、差异、审计和回滚；Secret 永不进入数据库。',
   delivery: '查看版本、备份、校验、恢复演练和配置版本的交付状态。',
   operations: '在精确确认和 RBAC 约束下发起取消、重试、清理、重启或回滚。',
   guide: '按角色说明页面权限、日常巡检、审批、运维和故障处理步骤。',
@@ -278,7 +286,7 @@ export function App() {
           </span>
         </div>
         <div className="environmentPill">
-          <span /> <strong>稳定</strong> · P6 LIVE
+          <span /> <strong>稳定</strong> · P7 LIVE
         </div>
         <nav aria-label="平台功能">
           {[
@@ -316,7 +324,7 @@ export function App() {
       <main>
         <header className="topbar">
           <div>
-            <p className="eyebrow">{currentPage?.group} / P6</p>
+            <p className="eyebrow">{currentPage?.group} / P7</p>
             <h1>{currentPage?.label}</h1>
             <p className="pageDescription">{currentPage ? pageDescriptions[currentPage.id] : ''}</p>
           </div>
@@ -465,7 +473,15 @@ function PageContent(props: {
     case 'alerts':
       return <AlertsPage {...props} />;
     case 'config':
-      return <ConfigPage snapshot={props.snapshot} />;
+      return (
+        <ConfigPage
+          key={configEditorSourceId(props.snapshot)}
+          snapshot={props.snapshot}
+          identity={props.identity}
+          onRefresh={props.onRefresh}
+          onError={props.onError}
+        />
+      );
     case 'delivery':
       return <DeliveryPage snapshot={props.snapshot} />;
     case 'operations':
@@ -559,7 +575,7 @@ function Overview({
         </div>
         <div className={`healthScore ${snapshot.summary.criticalAlerts > 0 ? 'danger' : ''}`}>
           <strong>{snapshot.summary.criticalAlerts > 0 ? '需处理' : '稳定'}</strong>
-          <span>P6 LIVE</span>
+          <span>P7 LIVE</span>
         </div>
       </section>
       <section className="metricGrid">
@@ -796,24 +812,38 @@ function IntegrationsPage({ snapshot }: { snapshot: AdminSnapshot }) {
           </div>
           <p>{item.detail}</p>
           <div className="integrationMeta">
-            <span>授权资源</span>
-            <strong>{item.resourceCount ?? '—'}</strong>
+            <div>
+              <span>授权资源</span>
+              <strong>{item.resourceCount ?? '—'}</strong>
+            </div>
+            <div>
+              <span>状态来源</span>
+              <strong>{integrationSourceLabel(item.source)}</strong>
+            </div>
+            {item.checkedAt ? (
+              <div>
+                <span>检查时间</span>
+                <strong>{formatDateTime(item.checkedAt)}</strong>
+              </div>
+            ) : null}
           </div>
           <div className="integrationFooter">
             <span
               className={
-                item.status === 'ready'
+                item.status === 'ready' || item.status === 'configured'
                   ? 'okDot'
                   : item.status === 'disabled'
                     ? 'neutralDot'
                     : 'warnDot'
               }
             />
-            {item.status === 'ready'
+            {item.status === 'ready' || item.status === 'configured'
               ? '配置完整'
               : item.status === 'disabled'
                 ? '按策略关闭'
-                : '等待配置'}
+                : item.status === 'offline'
+                  ? '状态端点不可用'
+                  : '等待配置'}
           </div>
         </article>
       ))}
@@ -1280,17 +1310,321 @@ function AlertsPage(props: {
   );
 }
 
-function ConfigPage({ snapshot }: { snapshot: AdminSnapshot }) {
+function ConfigPage(props: {
+  snapshot: AdminSnapshot;
+  identity: AdminIdentity;
+  onRefresh: () => Promise<void>;
+  onError: (message: string) => void;
+}) {
+  const { snapshot } = props;
+  const versions = snapshot.data.configVersions;
+  const draft = versions.find((item) => item.status === 'draft');
+  const active = versions.find((item) => item.status === 'active');
+  const source = draft ?? active;
+  const [configuration, setConfiguration] = useState<ManagedConfiguration>(() =>
+    managedEditorValues(snapshot, source),
+  );
+  const [description, setDescription] = useState(source?.description ?? '平台运行参数');
+  const [changeSummary, setChangeSummary] = useState(source?.changeSummary ?? '初始化配置中心');
+  const [validation, setValidation] = useState<ConfigValidation>();
+  const [confirmation, setConfirmation] = useState('');
+  const [busy, setBusy] = useState('');
+  const [comparisonId, setComparisonId] = useState(active?.id ?? source?.id ?? '');
+  const [rollbackTarget, setRollbackTarget] = useState<ConfigVersion>();
+  const [rollbackConfirmation, setRollbackConfirmation] = useState('');
+  const [rollbackSummary, setRollbackSummary] = useState('恢复经过验证的历史配置');
+
+  const run = async (key: string, action: () => Promise<void>): Promise<void> => {
+    setBusy(key);
+    props.onError('');
+    try {
+      await action();
+    } catch (reason: unknown) {
+      props.onError(adminErrorMessage(reason));
+    } finally {
+      setBusy('');
+    }
+  };
+
+  const validate = () =>
+    run('validate', async () => {
+      const result = await validateManagedConfig(props.identity, configuration);
+      setConfiguration(result.configuration);
+      setValidation(result);
+    });
+
+  const save = () =>
+    run('save', async () => {
+      const input = { configuration, description, changeSummary };
+      if (draft) {
+        await updateConfigDraft(props.identity, draft.id, input);
+      } else {
+        await createConfigDraft(props.identity, {
+          ...input,
+          ...(active ? { baseVersion: active.version } : {}),
+        });
+      }
+      await props.onRefresh();
+    });
+
+  const publish = () => {
+    if (!draft) return Promise.resolve();
+    return run('publish', async () => {
+      await publishConfigDraft(props.identity, draft.id, confirmation);
+      await props.onRefresh();
+    });
+  };
+
+  const rollback = () => {
+    if (!rollbackTarget) return Promise.resolve();
+    return run('rollback', async () => {
+      await rollbackConfigVersion(props.identity, rollbackTarget.id, {
+        confirmation: rollbackConfirmation,
+        changeSummary: rollbackSummary,
+      });
+      setRollbackTarget(undefined);
+      setRollbackConfirmation('');
+      await props.onRefresh();
+    });
+  };
+
+  const compared = versions.find((item) => item.id === comparisonId);
+  const changes = configDifferences(active, compared, snapshot.managedConfiguration.catalog);
   const groups = [...new Set(snapshot.configuration.map((item) => item.group))];
   return (
     <div className="stack">
       <div className="securityBanner">
         <span>◆</span>
         <div>
-          <strong>配置安全视图</strong>
-          <p>仅展示配置项名称、是否配置和来源。Secret、Token、密码与连接串值永不返回管理台。</p>
+          <strong>安全边界已启用</strong>
+          <p>
+            数据库只接收允许列表中的非敏感整数参数。Secret、Token、密码、连接串、TLS
+            私钥和凭据内容始终保留在受保护启动配置中。
+          </p>
         </div>
       </div>
+
+      <section className="configWorkspace">
+        <div className="configEditor">
+          <div className="sectionHeading">
+            <div>
+              <p className="eyebrow">MANAGED CONFIGURATION</p>
+              <h2>运行参数编辑器</h2>
+            </div>
+            <span>
+              {draft
+                ? `草稿 v${draft.version}`
+                : active
+                  ? `当前生效 v${active.version}`
+                  : '尚无数据库版本'}
+            </span>
+          </div>
+          <div className="managedFieldGrid">
+            {snapshot.managedConfiguration.catalog.map((item) => (
+              <label key={item.key}>
+                <span>
+                  <strong>{item.label}</strong>
+                  <small>{item.description}</small>
+                </span>
+                <div>
+                  <input
+                    type="number"
+                    min={item.minimum}
+                    max={item.maximum}
+                    value={configuration[item.key] ?? item.defaultValue}
+                    onChange={(event) =>
+                      setConfiguration((current) => ({
+                        ...current,
+                        [item.key]: Number(event.target.value),
+                      }))
+                    }
+                  />
+                  <b>{item.unit}</b>
+                </div>
+                <code>{item.key}</code>
+              </label>
+            ))}
+          </div>
+          <div className="configMetaFields">
+            <label>
+              <span>版本说明</span>
+              <input
+                value={description}
+                maxLength={1_000}
+                onChange={(event) => setDescription(event.target.value)}
+                placeholder="说明这组配置的用途"
+              />
+            </label>
+            <label>
+              <span>变更摘要</span>
+              <textarea
+                value={changeSummary}
+                maxLength={2_000}
+                onChange={(event) => setChangeSummary(event.target.value)}
+                placeholder="说明本次调整原因和影响"
+              />
+            </label>
+          </div>
+          {validation ? (
+            <div className={`configValidation ${validation.valid ? 'valid' : 'invalid'}`}>
+              <strong>{validation.valid ? '✓ 服务端校验通过' : '! 服务端校验未通过'}</strong>
+              {[...validation.errors, ...validation.warnings].map((message) => (
+                <span key={message}>{message}</span>
+              ))}
+            </div>
+          ) : null}
+          <div className="configActions">
+            <button type="button" disabled={Boolean(busy)} onClick={() => void validate()}>
+              {busy === 'validate' ? '校验中…' : '校验配置'}
+            </button>
+            <button
+              className="primaryAction"
+              type="button"
+              disabled={Boolean(busy) || !description.trim() || !changeSummary.trim()}
+              onClick={() => void save()}
+            >
+              {busy === 'save' ? '保存中…' : draft ? '更新草稿' : '创建草稿'}
+            </button>
+          </div>
+        </div>
+
+        <aside className="publishRail">
+          <p className="eyebrow">PUBLISH GATE</p>
+          <h3>校验与发布</h3>
+          <ol>
+            <li className={validation?.valid ? 'done' : ''}>服务端类型及允许列表校验</li>
+            <li className={draft?.validation.valid ? 'done' : ''}>草稿校验结果入库</li>
+            <li className={active ? 'done' : ''}>发布为唯一生效版本</li>
+          </ol>
+          {draft ? (
+            <div className="confirmationBox">
+              <span>输入精确确认文本</span>
+              <code>{`发布配置版本:${draft.version}`}</code>
+              <input
+                value={confirmation}
+                onChange={(event) => setConfirmation(event.target.value)}
+                placeholder="粘贴上方确认文本"
+              />
+              <button
+                type="button"
+                disabled={Boolean(busy) || confirmation !== `发布配置版本:${draft.version}`}
+                onClick={() => void publish()}
+              >
+                {busy === 'publish' ? '发布中…' : '发布并即时生效'}
+              </button>
+            </div>
+          ) : (
+            <p className="railEmpty">先创建并保存草稿，发布入口才会开放。</p>
+          )}
+          <small>发布后告警阈值与探测超时在下一次管理快照中生效，无需重启。</small>
+        </aside>
+      </section>
+
+      <Panel title="配置版本与差异" eyebrow="VERSION HISTORY" action={`${versions.length} 个版本`}>
+        <div className="versionToolbar">
+          <label>
+            对比当前生效版本与
+            <select value={comparisonId} onChange={(event) => setComparisonId(event.target.value)}>
+              <option value="">选择版本</option>
+              {versions.map((item) => (
+                <option key={item.id} value={item.id}>
+                  v{item.version} · {statusLabel(item.status)}
+                </option>
+              ))}
+            </select>
+          </label>
+          <span>{changes.length} 项差异</span>
+        </div>
+        {changes.length > 0 ? (
+          <div className="configDiffList">
+            {changes.map((item) => (
+              <article key={item.key}>
+                <div>
+                  <strong>{item.label}</strong>
+                  <code>{item.key}</code>
+                </div>
+                <span>{item.before}</span>
+                <b>→</b>
+                <span>{item.after}</span>
+              </article>
+            ))}
+          </div>
+        ) : null}
+        <DataTable
+          columns={['版本', '说明', '校验和', '状态', '创建/启用', '操作']}
+          rows={versions.map((item) => [
+            <strong key={`version-${item.id}`}>v{item.version}</strong>,
+            <span className="summaryCell" key={`summary-${item.id}`}>
+              {item.changeSummary || item.description}
+            </span>,
+            shortId(item.checksum),
+            <Status value={item.status} />,
+            <span key={`time-${item.id}`}>
+              {shortId(item.activatedBy || item.createdBy)}
+              <small className="tableSubline">
+                {formatDateTime(item.activatedAt || item.createdAt)}
+              </small>
+            </span>,
+            item.status === 'superseded' ? (
+              <button
+                className="tableLink"
+                type="button"
+                onClick={() => {
+                  setRollbackTarget(item);
+                  setRollbackConfirmation('');
+                }}
+              >
+                回滚到此版本
+              </button>
+            ) : (
+              '—'
+            ),
+          ])}
+          empty="尚无数据库配置版本。"
+        />
+      </Panel>
+
+      {rollbackTarget ? (
+        <section className="rollbackPanel">
+          <div>
+            <p className="eyebrow">CONTROLLED ROLLBACK</p>
+            <h3>回滚到 v{rollbackTarget.version}</h3>
+            <p>系统会创建新的生效版本，不会修改或删除任何历史记录。</p>
+          </div>
+          <label>
+            回滚原因
+            <input
+              value={rollbackSummary}
+              onChange={(event) => setRollbackSummary(event.target.value)}
+            />
+          </label>
+          <label>
+            输入 <code>{`回滚配置至版本:${rollbackTarget.version}`}</code>
+            <input
+              value={rollbackConfirmation}
+              onChange={(event) => setRollbackConfirmation(event.target.value)}
+            />
+          </label>
+          <div>
+            <button type="button" onClick={() => setRollbackTarget(undefined)}>
+              取消
+            </button>
+            <button
+              className="dangerAction"
+              type="button"
+              disabled={
+                Boolean(busy) ||
+                !rollbackSummary.trim() ||
+                rollbackConfirmation !== `回滚配置至版本:${rollbackTarget.version}`
+              }
+              onClick={() => void rollback()}
+            >
+              {busy === 'rollback' ? '回滚中…' : '确认回滚'}
+            </button>
+          </div>
+        </section>
+      ) : null}
+
       <div className="configGroups">
         {groups.map((group) => {
           const items = snapshot.configuration.filter((item) => item.group === group);
@@ -1298,7 +1632,7 @@ function ConfigPage({ snapshot }: { snapshot: AdminSnapshot }) {
             <Panel
               key={group}
               title={group}
-              eyebrow="EFFECTIVE CONFIG"
+              eyebrow="BOOTSTRAP CONFIG"
               action={`${items.length} 项`}
             >
               <div className="configList">
@@ -1308,7 +1642,7 @@ function ConfigPage({ snapshot }: { snapshot: AdminSnapshot }) {
                       <strong>{item.key}</strong>
                       <small>
                         {item.source === 'credential_reference'
-                          ? 'Windows Credential Manager 引用'
+                          ? '受保护凭据引用'
                           : item.source === 'environment'
                             ? '环境变量'
                             : '使用默认值'}
@@ -1327,21 +1661,45 @@ function ConfigPage({ snapshot }: { snapshot: AdminSnapshot }) {
           );
         })}
       </div>
-      <Panel
-        title="配置版本"
-        eyebrow="CONFIG HISTORY"
-        action={`${snapshot.data.configVersions.length} 个版本`}
-      >
-        <DataTable
-          columns={['版本', '校验和', '状态', '创建人', '启用时间']}
-          rows={snapshot.data.configVersions.map((item) => [
-            value(item.version),
-            shortId(item.checksum),
-            <Status value={value(item.status)} />,
-            shortId(item.createdBy),
-            formatDateTime(item.activatedAt),
-          ])}
-        />
+
+      <Panel title="操作说明" eyebrow="CONFIG PLAYBOOK" action="5 步闭环">
+        <ol className="configPlaybook">
+          <li>
+            <span>1</span>
+            <div>
+              <strong>从生效版本创建草稿</strong>
+              <p>每次只保留一个可编辑草稿，历史发布版本不可修改。</p>
+            </div>
+          </li>
+          <li>
+            <span>2</span>
+            <div>
+              <strong>调整允许列表参数</strong>
+              <p>页面不会接收任意键，更不会接收 Secret、Token 或密码。</p>
+            </div>
+          </li>
+          <li>
+            <span>3</span>
+            <div>
+              <strong>校验并保存</strong>
+              <p>范围、类型、默认值和校验和均由服务端重新计算。</p>
+            </div>
+          </li>
+          <li>
+            <span>4</span>
+            <div>
+              <strong>精确确认后发布</strong>
+              <p>发布人、版本和校验和写入审计，生效版本始终唯一。</p>
+            </div>
+          </li>
+          <li>
+            <span>5</span>
+            <div>
+              <strong>异常时受控回滚</strong>
+              <p>回滚会复制历史配置并产生新版本，完整保留证据链。</p>
+            </div>
+          </li>
+        </ol>
       </Panel>
     </div>
   );
@@ -1922,7 +2280,7 @@ function LoginPage({
             </article>
           </div>
         </div>
-        <small className="loginFootnote">企业内网 · P6 管理控制面</small>
+        <small className="loginFootnote">企业内网 · P7 管理控制面</small>
       </section>
       <section className="loginPanel">
         <div className="loginCard">
@@ -2022,6 +2380,45 @@ function consumeAuthCallbackResult(): { message: string; unauthorized: boolean }
 
 function adminErrorMessage(reason: unknown): string {
   return reason instanceof Error ? reason.message : '管理台数据加载失败，请稍后重试。';
+}
+function managedEditorValues(
+  snapshot: AdminSnapshot,
+  source?: ConfigVersion,
+): ManagedConfiguration {
+  return Object.fromEntries(
+    snapshot.managedConfiguration.catalog.map((item) => [
+      item.key,
+      source?.configuration[item.key] ??
+        snapshot.managedConfiguration.effective[item.key] ??
+        item.defaultValue,
+    ]),
+  );
+}
+function configEditorSourceId(snapshot: AdminSnapshot): string {
+  const draft = snapshot.data.configVersions.find((item) => item.status === 'draft');
+  const active = snapshot.data.configVersions.find((item) => item.status === 'active');
+  return draft?.id ?? active?.id ?? 'bootstrap';
+}
+function configDifferences(
+  active: ConfigVersion | undefined,
+  compared: ConfigVersion | undefined,
+  catalog: AdminSnapshot['managedConfiguration']['catalog'],
+): Array<{ key: string; label: string; before: string; after: string }> {
+  if (!active || !compared || active.id === compared.id) return [];
+  return catalog.flatMap((item) => {
+    const before = active.configuration[item.key] ?? item.defaultValue;
+    const after = compared.configuration[item.key] ?? item.defaultValue;
+    return before === after
+      ? []
+      : [
+          {
+            key: item.key,
+            label: item.label,
+            before: `${before}${item.unit}`,
+            after: `${after}${item.unit}`,
+          },
+        ];
+  });
 }
 function readPageFromHash(): PageId {
   const candidate = window.location.hash.replace(/^#/, '').split('?')[0];
@@ -2138,6 +2535,20 @@ function statusLabel(item: string): string {
         progress: '进度',
       } as Record<string, string>
     )[item] ?? item
+  );
+}
+
+function integrationSourceLabel(
+  source: 'control-api' | 'windows-worker' | 'combined' | undefined,
+): string {
+  return (
+    (
+      {
+        'control-api': 'Linux 控制面',
+        'windows-worker': 'Windows Worker',
+        combined: '控制面 + Worker',
+      } as Record<string, string>
+    )[source ?? ''] ?? '—'
   );
 }
 function toneForStatus(item: string): string {

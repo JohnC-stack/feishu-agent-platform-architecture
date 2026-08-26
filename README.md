@@ -5,7 +5,7 @@
 
 面向企业内网的飞书 Agent 管理与执行平台。它把飞书消息接入、确定性工具、Agent CLI、企业系统、RBAC、审批、审计、管理中心、监控告警、发布回滚和备份恢复整合到同一条可治理链路中。
 
-> **当前状态：P0–P7 已完成并关闭，P8 尚未开始。** 2026-08-26 的实机验收版本为 `0.7.0-p7rc1`。OpenAI API/ReAct 通道保留实现但固定设置为 `API_AGENT_ENABLED=false`，不参与活动路由、回退或 readiness。
+> **当前状态：P0–P7 已完成并关闭，P8 尚未开始。** 2026-08-26 的当前活动版本为 `0.7.2-p7-config-center-candidate1`；配置管理中心的数据库版本、发布、差异、回滚、页面和端到端链路均已验收。OpenAI API/ReAct 通道保留实现但固定设置为 `API_AGENT_ENABLED=false`，不参与活动路由、回退或 readiness。
 
 ## 项目定位
 
@@ -31,7 +31,7 @@
 | P4   | 已关闭 | GitLab、Confluence、飞书只读接入和企业资源白名单           |
 | P5   | 已关闭 | RBAC、飞书审批卡、写操作幂等、预算、审计和凭据引用         |
 | P6   | 已关闭 | 14 页管理中心、飞书 OAuth、角色管理、告警和运维操作        |
-| P7   | 已关闭 | Windows Service、Linux VM 控制面、mTLS、发布回滚和备份恢复 |
+| P7   | 已关闭 | Windows/Linux 混合部署、mTLS、发布回滚、备份恢复和配置中心 |
 | P8   | 未开始 | 压测、安全测试、故障演练、企业 CA、UAT 和生产准入          |
 
 完整任务与验收条件见 [实施计划](IMPLEMENTATION_PLAN.md)，逐阶段实测证据见 [实施状态](IMPLEMENTATION_STATUS.md)。
@@ -40,7 +40,7 @@
 
 | 项目           | 当前实机状态                                                                                                                                                                                                                 |
 | -------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 活动版本       | `0.7.0-p7rc1`                                                                                                                                                                                                                |
+| 活动版本       | `0.7.2-p7-config-center-candidate1`                                                                                                                                                                                          |
 | Windows 执行面 | Gateway、Worker 均为 `LocalService / Automatic / Running`                                                                                                                                                                    |
 | Linux 控制面   | Ubuntu 24.04.4 Hyper-V VM，地址 `192.168.100.10`                                                                                                                                                                             |
 | 容器           | PostgreSQL、Redis、Control API、Edge、Prometheus、Grafana 共 6 个                                                                                                                                                            |
@@ -49,7 +49,7 @@
 | 重启恢复       | Windows 整机重启后的服务、VM、systemd、容器、防火墙和任务链路 15/15 通过                                                                                                                                                     |
 | 发布演练       | Linux 与 Windows 均完成 `p7rc1 → p7rc2 → p7rc1` 升级、健康检查和回滚                                                                                                                                                         |
 | 恢复演练       | 加密备份、逐文件哈希、5 条 migration、Redis `PONG` 和独立项目恢复全部通过                                                                                                                                                    |
-| 自动化质量门禁 | 41 个测试文件、138 个测试、Lint、严格类型检查和全部生产构建通过                                                                                                                                                              |
+| 自动化质量门禁 | 42 个测试文件、155 个测试、格式、Lint、严格类型检查和全部生产构建通过                                                                                                                                                        |
 | 远端门禁       | P7 [CI](https://github.com/JohnC-stack/feishu-agent-platform-architecture/actions/runs/32875385999) 与 [Security](https://github.com/JohnC-stack/feishu-agent-platform-architecture/actions/runs/32875385943) 均为 `success` |
 
 P7 的实机验收主机是 Windows 11 Pro 25H2。目标生产环境仍应使用公司批准的 Windows Server、企业 CA 和服务账号安全基线。
@@ -329,7 +329,7 @@ pnpm dev:infra:down
 
 当前 P7 关闭门禁包括：
 
-- Prettier、ESLint、严格 TypeScript、41 个测试文件、138 个测试和完整生产构建；
+- Prettier、ESLint、严格 TypeScript、42 个测试文件、155 个测试和完整生产构建；
 - PowerShell 5.1 与 PowerShell 7 的 Windows 部署资产兼容性；
 - Linux Shell 语法、Compose 边界、UFW 和端口发布检查；
 - `pnpm audit --prod --audit-level high` 无已知漏洞；
@@ -338,6 +338,7 @@ pnpm dev:infra:down
 - Windows 重启后 15 项自动恢复与新的 `/ping` 全链路任务；
 - Linux/Windows 双侧升级、健康检查、回滚和回滚后任务；
 - 加密备份、逐文件哈希与独立项目恢复演练；
+- 配置版本校验、草稿、精确确认发布、差异、唯一生效版本、审计和不可变回滚；
 - GitHub Actions CI 与 Security 工作流。
 
 自动化契约测试不能替代真实企业系统、浏览器、重启、证书和恢复演练。每个阶段只有在对应真实门禁也通过后才能关闭。
@@ -399,6 +400,7 @@ P7 实机使用受保护的测试 PKI。它只用于阶段验收，不是最终�
 | [管理台与运维](docs/p6-admin-and-operations.md)              | 管理 API、告警、Trace、OAuth 和运维操作                |
 | [管理中心页面规范](docs/p6-admin-ui-spec.md)                 | 14 个页面的原型、状态、交互和接口                      |
 | [管理中心操作说明书](docs/p6-admin-operation-manual.md)      | 登录、角色、日检、告警、运维和审计流程                 |
+| [配置管理中心](docs/p7-configuration-management.md)          | 非敏感配置草稿、校验、发布、差异、审计和受控回滚       |
 | [P7 运维手册](docs/p7-hybrid-deployment-operation-manual.md) | 正式拓扑、健康、启停、发布、回滚和故障定位             |
 | [架构决策记录](docs/adr/0001-monorepo-and-runtime.md)        | 单体仓库与运行时边界；同目录还包含执行器和混合部署 ADR |
 

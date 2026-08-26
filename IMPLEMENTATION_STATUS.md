@@ -212,6 +212,7 @@ P6 的底层迁移、真实 PostgreSQL/Redis、三服务运行态、飞书真实
 | `P7-03` mTLS 与最小端口  | 已完成 | Windows 仅向 VM 放行 3100/3200；VM 仅向宿主放行 22/443/6379；三条持证通道返回 200/ok，无客户端证书在 TLS 1.3 握手阶段拒绝，3 个 Prometheus 目标均为 `up`                |
 | `P7-04` 升级、迁移与回滚 | 已完成 | Linux 与 Windows 均完成 `p7rc1 → p7rc2 → p7rc1` 实机演练；migration、无队列消费金丝雀、双服务健康、任务链路、证书状态和 PowerShell 5.1/7 门禁通过                       |
 | `P7-05` 加密备份与恢复   | 已完成 | 最终加密备份逐文件校验通过；独立项目恢复 5 条 migration、Redis `PONG` 与配置，恢复报告为 `passed`                                                                       |
+| `P7-06` 配置管理中心     | 已完成 | 非敏感配置允许列表、草稿校验、精确确认发布、版本差异、唯一活动版本、审计和不可变回滚已实现；`0.7.2-p7-config-center-candidate1` 数据库及页面实机验收通过                |
 
 ## P7 当前验收记录
 
@@ -226,6 +227,7 @@ P6 的底层迁移、真实 PostgreSQL/Redis、三服务运行态、飞书真实
 - 2026-08-26 Windows 整机重启后，VM 自动启动策略、两个 Windows 服务、systemd、6 个容器、UFW、端口边界、4 个 HTTPS 入口、3 个 Prometheus 目标、mTLS 正反检查、Docker Desktop 零依赖和重启后端到端任务共 15 项全部通过。
 - 正式升级/回滚演练使用 `0.7.0-p7rc2`：Linux 完成镜像构建、migration、无队列消费金丝雀、活动切换和回滚，升级版与回滚版各提交一条真实 `/ping` 并返回 `pong`；Windows 完成 10,703 项发布复制与校验、Gateway/Worker 双服务升级健康和回滚健康，mTLS 证书指纹保持不变。最终活动版本恢复为 `0.7.0-p7rc1`，回滚后新任务 `56f67ee2-0e7d-4cb6-9013-339cf6321d0e` 成功，综合验收再次为 15/15。
 - P7 功能提交为 `6d4109d`；远端 [CI](https://github.com/JohnC-stack/feishu-agent-platform-architecture/actions/runs/32875385999) 与 [Security](https://github.com/JohnC-stack/feishu-agent-platform-architecture/actions/runs/32875385943) 均为 `success`。
+- 2026-08-26 配置管理中心候选版 `0.7.2-p7-config-center-candidate1` 已部署为当前活动版本。migration `0006`、金丝雀、双健康端点、管理鉴权和真实 `/ping` 通过；数据库完成版本 1 发布、版本 2 差异发布及版本 3 基线回滚，最终仅版本 3 为 `active`。超级管理员页面人工验收通过。
 - P7 实机验收使用受保护的 P7 测试 PKI；进入 P8 生产试运行前必须换发企业 CA 证书，并由安全团队确认是否将 `LocalService` 切换为专用域服务账号。`API_AGENT_ENABLED=false` 保持不变。
 
 ## P7 阶段出口

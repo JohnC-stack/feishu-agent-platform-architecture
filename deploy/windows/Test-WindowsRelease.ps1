@@ -15,6 +15,14 @@ function Get-PortableRelativePath {
     return [Uri]::UnescapeDataString($baseUri.MakeRelativeUri($targetUri).ToString()).Replace('/', '\')
 }
 
+function ConvertTo-ExtendedLengthPath {
+    param([string]$Path)
+    $full = [IO.Path]::GetFullPath($Path)
+    if ($full.StartsWith('\\?\')) { return $full }
+    if ($full.StartsWith('\\')) { return '\\?\UNC\' + $full.Substring(2) }
+    return '\\?\' + $full
+}
+
 $release = [System.IO.Path]::GetFullPath($ReleasePath)
 $manifestPath = Join-Path $release 'release-manifest.json'
 if (-not (Test-Path -LiteralPath $manifestPath -PathType Leaf)) {
@@ -45,10 +53,11 @@ foreach ($entry in $manifest.files) {
     if (-not $candidate.StartsWith($release + [System.IO.Path]::DirectorySeparatorChar, [StringComparison]::OrdinalIgnoreCase)) {
         throw "Release manifest path escapes release root: $($entry.path)"
     }
-    if (-not (Test-Path -LiteralPath $candidate -PathType Leaf)) {
+    $candidateIoPath = ConvertTo-ExtendedLengthPath -Path $candidate
+    if (-not (Test-Path -LiteralPath $candidateIoPath -PathType Leaf)) {
         throw "Release file is missing: $($entry.path)"
     }
-    $actualHash = (Get-FileHash -LiteralPath $candidate -Algorithm SHA256).Hash
+    $actualHash = (Get-FileHash -LiteralPath $candidateIoPath -Algorithm SHA256).Hash
     if ($actualHash -ne $entry.sha256) {
         throw "Release file hash mismatch: $($entry.path)"
     }

@@ -6,18 +6,22 @@ import type {
   AdminTaskTrace,
   OperationalAlertInput,
   OperationalAlertRecord,
+  PlatformConfigVersionRecord,
 } from '@feishu-agent/database';
 
 import {
   AdminService,
   AdminValidationError,
+  configPublishConfirmation,
+  configRollbackConfirmation,
   confirmationText,
+  createAdminRuntime,
   type AdminRepositoryPort,
   type AdminRuntimePort,
 } from './admin-service.js';
 import { GovernanceAuthorizationError, type GovernanceService } from './governance-service.js';
 
-describe('P6 admin service', () => {
+describe('P7 admin service', () => {
   it('aggregates runtime state, creates threshold alerts, and redacts diagnostic secrets', async () => {
     const repository = new MemoryAdminRepository();
     const governance = createGovernanceStub();
@@ -26,7 +30,7 @@ describe('P6 admin service', () => {
 
     const result = await service.snapshot({ actorId: 'admin-user' });
 
-    expect(result.phase).toBe('P6');
+    expect(result.phase).toBe('P7');
     expect(result.summary.totalTasks).toBe(3);
     expect(result.summary.openAlerts).toBe(4);
     expect(result.summary.criticalAlerts).toBe(2);
@@ -207,6 +211,127 @@ describe('P6 admin service', () => {
       }),
     ).toThrowError(GovernanceAuthorizationError);
   });
+
+  it('validates, publishes, audits and immediately applies a managed configuration version', async () => {
+    const repository = new MemoryAdminRepository();
+    const governance = createGovernanceStub();
+    const service = new AdminService(repository, governance.service, createRuntimeStub());
+    const configuration = {
+      'alerts.queueWaitingThreshold': 50,
+      'alerts.budgetPercentThreshold': 90,
+      'alerts.failedTaskThreshold': 5,
+      'alerts.modelFailureThreshold': 2,
+      'health.serviceProbeTimeoutMs': 3_000,
+    };
+
+    const draft = await service.createConfigDraft(
+      { actorId: 'admin-user' },
+      { configuration, description: '生产告警基线', changeSummary: '提高告警阈值' },
+    );
+    const published = await service.publishConfigDraft(
+      { actorId: 'admin-user' },
+      draft.id,
+      configPublishConfirmation(draft.version),
+    );
+    const snapshot = await service.snapshot({ actorId: 'admin-user' });
+
+    expect(published.status).toBe('active');
+    expect(snapshot.managedConfiguration).toMatchObject({
+      source: 'database',
+      activeVersion: 1,
+      effective: configuration,
+    });
+    expect(governance.recordAdminAudit).toHaveBeenCalledWith(
+      expect.objectContaining({ action: 'config.publish', outcome: 'succeeded' }),
+    );
+  });
+
+  it('rejects incorrect configuration confirmations and updates to published history', async () => {
+    const repository = new MemoryAdminRepository();
+    const governance = createGovernanceStub();
+    const service = new AdminService(repository, governance.service, createRuntimeStub());
+    const input = {
+      configuration: { 'alerts.queueWaitingThreshold': 25 },
+      description: '不可变版本验收',
+      changeSummary: '确认文本与历史保护测试',
+    };
+    const draft = await service.createConfigDraft({ actorId: 'admin-user' }, input);
+
+    await expect(
+      service.publishConfigDraft({ actorId: 'admin-user' }, draft.id, '发布'),
+    ).rejects.toBeInstanceOf(AdminValidationError);
+    await service.publishConfigDraft(
+      { actorId: 'admin-user' },
+      draft.id,
+      configPublishConfirmation(draft.version),
+    );
+    await expect(
+      service.updateConfigDraft({ actorId: 'admin-user' }, draft.id, input),
+    ).rejects.toThrow('Draft not found.');
+    await expect(
+      service.rollbackConfigVersion({ actorId: 'admin-user' }, draft.id, {
+        confirmation: '回滚',
+        changeSummary: '错误确认文本',
+      }),
+    ).rejects.toBeInstanceOf(AdminValidationError);
+  });
+
+  it('rejects sensitive or unknown configuration keys before persistence', async () => {
+    const repository = new MemoryAdminRepository();
+    const governance = createGovernanceStub();
+    const service = new AdminService(repository, governance.service, createRuntimeStub());
+
+    await expect(
+      service.createConfigDraft(
+        { actorId: 'admin-user' },
+        {
+          configuration: { CONFLUENCE_PASSWORD: 'never-store-this' },
+          description: '非法配置',
+          changeSummary: '安全测试',
+        },
+      ),
+    ).rejects.toThrow('禁止写入数据库');
+  });
+
+  it('rolls back by creating a new active version and preserving immutable history', async () => {
+    const repository = new MemoryAdminRepository();
+    const governance = createGovernanceStub();
+    const service = new AdminService(repository, governance.service, createRuntimeStub());
+    const first = await service.createConfigDraft(
+      { actorId: 'admin-user' },
+      {
+        configuration: { 'alerts.queueWaitingThreshold': 20 },
+        description: '版本一',
+        changeSummary: '初始版本',
+      },
+    );
+    await service.publishConfigDraft(
+      { actorId: 'admin-user' },
+      first.id,
+      configPublishConfirmation(first.version),
+    );
+    const second = await service.createConfigDraft(
+      { actorId: 'admin-user' },
+      {
+        configuration: { 'alerts.queueWaitingThreshold': 40 },
+        description: '版本二',
+        changeSummary: '调整阈值',
+      },
+    );
+    await service.publishConfigDraft(
+      { actorId: 'admin-user' },
+      second.id,
+      configPublishConfirmation(second.version),
+    );
+
+    const rolledBack = await service.rollbackConfigVersion({ actorId: 'admin-user' }, first.id, {
+      confirmation: configRollbackConfirmation(first.version),
+      changeSummary: '回滚验收',
+    });
+
+    expect(rolledBack).toMatchObject({ status: 'active', version: 3, baseVersion: 1 });
+    expect(rolledBack.configuration['alerts.queueWaitingThreshold']).toBe(20);
+  });
 });
 
 const taskId = '20000000-0000-4000-8000-000000000001';
@@ -214,6 +339,7 @@ const taskId = '20000000-0000-4000-8000-000000000001';
 class MemoryAdminRepository implements AdminRepositoryPort {
   private alerts: OperationalAlertRecord[] = [];
   private operations: AdminOperationRecord[] = [];
+  private configVersions: PlatformConfigVersionRecord[] = [];
 
   public constructor(private readonly executorRuns: Array<Record<string, unknown>> = []) {}
 
@@ -247,7 +373,7 @@ class MemoryAdminRepository implements AdminRepositoryPort {
       operations: this.operations,
       releases: [],
       backups: [],
-      configVersions: [],
+      configVersions: this.configVersions.map((item) => ({ ...item })),
     });
   }
 
@@ -303,12 +429,104 @@ class MemoryAdminRepository implements AdminRepositoryPort {
     });
     return Promise.resolve(operation);
   }
+
+  public getConfigVersion(configId: string): Promise<PlatformConfigVersionRecord | undefined> {
+    return Promise.resolve(this.configVersions.find((item) => item.id === configId));
+  }
+
+  public getActiveConfigVersion(): Promise<PlatformConfigVersionRecord | undefined> {
+    return Promise.resolve(this.configVersions.find((item) => item.status === 'active'));
+  }
+
+  public createConfigDraft(
+    input: Parameters<AdminRepositoryPort['createConfigDraft']>[0],
+  ): Promise<PlatformConfigVersionRecord> {
+    const version = this.configVersions.length + 1;
+    const record: PlatformConfigVersionRecord = {
+      id: `50000000-0000-4000-8000-${String(version).padStart(12, '0')}`,
+      version,
+      checksum: input.checksum,
+      status: 'draft',
+      configuration: input.configuration,
+      description: input.description,
+      changeSummary: input.changeSummary,
+      ...(input.baseVersion ? { baseVersion: input.baseVersion } : {}),
+      validation: input.validation,
+      createdBy: input.createdBy,
+      createdAt: '2026-08-26T00:00:00.000Z',
+      updatedBy: input.createdBy,
+      updatedAt: '2026-08-26T00:00:00.000Z',
+    };
+    this.configVersions.unshift(record);
+    return Promise.resolve(record);
+  }
+
+  public updateConfigDraft(
+    input: Parameters<AdminRepositoryPort['updateConfigDraft']>[0],
+  ): Promise<PlatformConfigVersionRecord> {
+    const record = this.configVersions.find((item) => item.id === input.configId);
+    if (!record || record.status !== 'draft') throw new Error('Draft not found.');
+    Object.assign(record, {
+      checksum: input.checksum,
+      configuration: input.configuration,
+      description: input.description,
+      changeSummary: input.changeSummary,
+      validation: input.validation,
+      updatedBy: input.updatedBy,
+    });
+    return Promise.resolve(record);
+  }
+
+  public publishConfigDraft(
+    configId: string,
+    actorId: string,
+  ): Promise<PlatformConfigVersionRecord> {
+    const record = this.configVersions.find((item) => item.id === configId);
+    if (!record) throw new Error('Draft not found.');
+    for (const item of this.configVersions) {
+      if (item.status === 'active') item.status = 'superseded';
+    }
+    Object.assign(record, {
+      status: 'active',
+      activatedBy: actorId,
+      activatedAt: '2026-08-26T00:00:01.000Z',
+    });
+    return Promise.resolve(record);
+  }
+
+  public rollbackConfigVersion(
+    input: Parameters<AdminRepositoryPort['rollbackConfigVersion']>[0],
+  ): Promise<PlatformConfigVersionRecord> {
+    const source = this.configVersions.find((item) => item.id === input.sourceConfigId);
+    if (!source) throw new Error('Source not found.');
+    for (const item of this.configVersions) {
+      if (item.status === 'active') item.status = 'superseded';
+    }
+    const version = this.configVersions.length + 1;
+    const record: PlatformConfigVersionRecord = {
+      ...source,
+      id: `50000000-0000-4000-8000-${String(version).padStart(12, '0')}`,
+      version,
+      status: 'active',
+      baseVersion: source.version,
+      changeSummary: input.changeSummary,
+      createdBy: input.actorId,
+      createdAt: '2026-08-26T00:00:02.000Z',
+      updatedBy: input.actorId,
+      updatedAt: '2026-08-26T00:00:02.000Z',
+      activatedBy: input.actorId,
+      activatedAt: '2026-08-26T00:00:02.000Z',
+    };
+    this.configVersions.unshift(record);
+    return Promise.resolve(record);
+  }
 }
 
 function createGovernanceStub(roleIds: string[] = ['administrator']) {
   const authorizeAdminRead = vi.fn(() => roleIds);
   const authorizeAdminOperation = vi.fn(() => ['operator']);
   const authorizeAlertManagement = vi.fn(() => ['operator']);
+  const authorizeConfigManagement = vi.fn(() => roleIds);
   const recordAdminAudit = vi.fn(() => Promise.resolve());
   const capabilities = vi.fn(() => ({
     tools: [],
@@ -330,6 +548,7 @@ function createGovernanceStub(roleIds: string[] = ['administrator']) {
       authorizeAdminRead,
       authorizeAdminOperation,
       authorizeAlertManagement,
+      authorizeConfigManagement,
       recordAdminAudit,
       capabilities,
       upsertRoleBinding,
@@ -371,6 +590,83 @@ function createRuntimeStub(
         },
       ]),
     getConfigSummary: () => [],
-    getIntegrations: () => [],
+    getIntegrations: () => Promise.resolve([]),
+  };
+}
+
+describe('P7 integration status aggregation', () => {
+  it('uses the Windows Worker as the source of truth for enterprise integrations', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn<typeof fetch>().mockResolvedValue(
+        new Response(
+          JSON.stringify({
+            service: 'windows-worker',
+            checkedAt: '2026-08-26T05:00:00.000Z',
+            integrations: [
+              { id: 'feishu', configured: true, resourceCount: 4 },
+              { id: 'gitlab', configured: true, resourceCount: 11 },
+              { id: 'confluence', configured: true, resourceCount: 2 },
+            ],
+          }),
+          { status: 200, headers: { 'content-type': 'application/json' } },
+        ),
+      ),
+    );
+    const runtime = createAdminRuntime({
+      queue: { getSnapshot: () => Promise.resolve(createRuntimeStubSnapshot()) },
+      environment: {
+        WINDOWS_WORKER_URL: 'http://127.0.0.1:3200',
+        FEISHU_APP_ID: 'cli_test',
+        FEISHU_APP_SECRET: 'protected',
+        API_AGENT_ENABLED: 'false',
+      },
+    });
+
+    try {
+      await expect(runtime.getIntegrations()).resolves.toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ id: 'gitlab', status: 'configured', resourceCount: 11 }),
+          expect.objectContaining({ id: 'confluence', status: 'configured', resourceCount: 2 }),
+          expect.objectContaining({ id: 'feishu', status: 'configured', resourceCount: 4 }),
+        ]),
+      );
+      expect(runtime.getConfigSummary().map((item) => item.key)).not.toEqual(
+        expect.arrayContaining(['GITLAB_TOKEN', 'CONFLUENCE_CLI_WRAPPER']),
+      );
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it('reports Worker-owned integrations as offline when the status endpoint is unavailable', async () => {
+    vi.stubGlobal('fetch', vi.fn<typeof fetch>().mockRejectedValue(new Error('offline')));
+    const runtime = createAdminRuntime({
+      queue: { getSnapshot: () => Promise.resolve(createRuntimeStubSnapshot()) },
+      environment: { WINDOWS_WORKER_URL: 'http://127.0.0.1:3200' },
+    });
+
+    try {
+      const integrations = await runtime.getIntegrations();
+      expect(integrations).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ id: 'gitlab', status: 'offline' }),
+          expect.objectContaining({ id: 'confluence', status: 'offline' }),
+        ]),
+      );
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+});
+
+function createRuntimeStubSnapshot() {
+  return {
+    waiting: 0,
+    active: 0,
+    delayed: 0,
+    completed: 0,
+    failed: 0,
+    deadLettered: 0,
   };
 }

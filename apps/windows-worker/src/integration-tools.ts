@@ -4,6 +4,7 @@ import {
   FeishuReadonlyClient,
   GitLabReadonlyClient,
   IntegrationError,
+  LegacyConfluenceSessionRunner,
   PowerShellConfluenceRunner,
   type ConfluenceReadonlyClientOptions,
   type FeishuReadonlyClientOptions,
@@ -88,20 +89,41 @@ export interface EnterpriseIntegrationStatus {
   feishu: boolean;
 }
 
+export interface EnterpriseIntegrationResourceCounts {
+  gitlab: number;
+  confluence: number;
+  feishu: number;
+}
+
 export interface EnterpriseIntegrationRuntime {
   tools: ToolDefinition[];
   status: EnterpriseIntegrationStatus;
+  resourceCounts: EnterpriseIntegrationResourceCounts;
 }
 
 export function createEnterpriseIntegrationRuntime(
   environment: NodeJS.ProcessEnv = process.env,
   clients: EnterpriseIntegrationClients = createClients(environment),
 ): EnterpriseIntegrationRuntime {
+  const gitlabProjects = readList(environment.GITLAB_ALLOWED_PROJECTS);
+  const confluenceSpaces = readList(environment.CONFLUENCE_ALLOWED_SPACE_KEYS);
+  const confluencePages = readList(environment.CONFLUENCE_ALLOWED_PAGE_IDS);
+  const feishuResources = [
+    ...readList(environment.FEISHU_ALLOWED_DOCUMENT_IDS),
+    ...readList(environment.FEISHU_ALLOWED_BITABLE_APP_TOKENS),
+    ...readList(environment.FEISHU_ALLOWED_CHAT_IDS),
+    ...readList(environment.FEISHU_ALLOWED_USER_IDS),
+  ];
   return {
     status: {
       gitlab: clients.gitlab !== undefined,
       confluence: clients.confluence !== undefined,
       feishu: clients.feishu !== undefined,
+    },
+    resourceCounts: {
+      gitlab: new Set(gitlabProjects).size,
+      confluence: new Set([...confluenceSpaces, ...confluencePages]).size,
+      feishu: new Set(feishuResources).size,
     },
     tools: [
       {
@@ -212,13 +234,27 @@ function createClients(environment: NodeJS.ProcessEnv): EnterpriseIntegrationCli
     clients.gitlab = new GitLabReadonlyClient(options);
   }
   const confluenceSpaces = readList(environment.CONFLUENCE_ALLOWED_SPACE_KEYS);
-  if (environment.CONFLUENCE_CLI_WRAPPER && confluenceSpaces.length > 0) {
+  const confluenceRunner =
+    environment.CONFLUENCE_BASE_URL &&
+    environment.CONFLUENCE_USERNAME &&
+    environment.CONFLUENCE_PASSWORD
+      ? new LegacyConfluenceSessionRunner({
+          baseUrl: environment.CONFLUENCE_BASE_URL,
+          username: environment.CONFLUENCE_USERNAME,
+          password: environment.CONFLUENCE_PASSWORD,
+          maxOutputBytes: common.http?.maxResponseBytes,
+          timeoutMs: common.http?.timeoutMs,
+        })
+      : environment.CONFLUENCE_CLI_WRAPPER
+        ? new PowerShellConfluenceRunner({
+            wrapperPath: environment.CONFLUENCE_CLI_WRAPPER,
+            maxOutputBytes: common.http?.maxResponseBytes,
+            timeoutMs: common.http?.timeoutMs,
+          })
+        : undefined;
+  if (confluenceRunner && confluenceSpaces.length > 0) {
     const options: ConfluenceReadonlyClientOptions = {
-      runner: new PowerShellConfluenceRunner({
-        wrapperPath: environment.CONFLUENCE_CLI_WRAPPER,
-        maxOutputBytes: common.http?.maxResponseBytes,
-        timeoutMs: common.http?.timeoutMs,
-      }),
+      runner: confluenceRunner,
       allowedSpaceKeys: confluenceSpaces,
       allowedPageIds: readList(environment.CONFLUENCE_ALLOWED_PAGE_IDS),
       maxAttempts: common.http?.maxAttempts,

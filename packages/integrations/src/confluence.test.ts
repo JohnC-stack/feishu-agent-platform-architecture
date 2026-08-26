@@ -1,6 +1,10 @@
 import { describe, expect, it, vi } from 'vitest';
 
-import { ConfluenceReadonlyClient, type ConfluenceCommandRunner } from './confluence.js';
+import {
+  ConfluenceReadonlyClient,
+  LegacyConfluenceSessionRunner,
+  type ConfluenceCommandRunner,
+} from './confluence.js';
 import { IntegrationError } from './errors.js';
 
 describe('ConfluenceReadonlyClient contract', () => {
@@ -67,6 +71,67 @@ describe('ConfluenceReadonlyClient contract', () => {
       client.searchPages('ENG', 'release', new AbortController().signal),
     ).resolves.toMatchObject({ data: { results: [] } });
     expect(run).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe('LegacyConfluenceSessionRunner', () => {
+  it('establishes a legacy session and performs only the mapped read request', async () => {
+    const transport = vi
+      .fn()
+      .mockResolvedValueOnce(
+        new Response(null, {
+          status: 302,
+          headers: {
+            location: '/confluence/rest/api/user/current',
+            'set-cookie': 'JSESSIONID=session-value; Path=/confluence; HttpOnly',
+          },
+        }),
+      )
+      .mockResolvedValueOnce(
+        Response.json({ username: 'service-user', displayName: 'Service User' }),
+      )
+      .mockResolvedValueOnce(Response.json({ results: [{ id: '100' }] }));
+    const runner = new LegacyConfluenceSessionRunner({
+      baseUrl: 'http://confluence.internal/confluence',
+      username: 'service-user',
+      password: 'local-test-password',
+      transport,
+    });
+
+    await expect(
+      runner.run(
+        ['search', "space='ENG' AND type=page", '--limit', '5'],
+        new AbortController().signal,
+      ),
+    ).resolves.toEqual({ results: [{ id: '100' }] });
+
+    expect(transport).toHaveBeenCalledTimes(3);
+    const login = transport.mock.calls[0] as unknown as [URL, RequestInit];
+    expect(login[0].toString()).toBe('http://confluence.internal/confluence/dologin.action');
+    expect(login[1].method).toBe('POST');
+    expect(typeof login[1].body).toBe('string');
+    expect(login[1].body).toContain('os_destination=%2Frest%2Fapi%2Fuser%2Fcurrent');
+    const read = transport.mock.calls[2] as unknown as [URL, RequestInit];
+    expect(read[0].toString()).toContain('/confluence/rest/api/content/search?');
+    expect(new Headers(read[1].headers).get('cookie')).toBe('JSESSIONID=session-value');
+  });
+
+  it('rejects arbitrary REST paths and write operations before network access', async () => {
+    const transport = vi.fn();
+    const runner = new LegacyConfluenceSessionRunner({
+      baseUrl: 'http://confluence.internal/confluence',
+      username: 'service-user',
+      password: 'local-test-password',
+      transport,
+    });
+
+    await expect(
+      runner.run(['api', 'POST', 'content', '-q', 'limit=1'], new AbortController().signal),
+    ).rejects.toMatchObject({ code: 'CONFLUENCE_COMMAND_REJECTED' });
+    await expect(
+      runner.run(['api', 'GET', 'user/current', '-q', 'limit=1'], new AbortController().signal),
+    ).rejects.toMatchObject({ code: 'CONFLUENCE_COMMAND_REJECTED' });
+    expect(transport).not.toHaveBeenCalled();
   });
 });
 

@@ -43,6 +43,27 @@ export function createWindowsWorker(dependencies: WindowsWorkerDependencies = {}
         activeExecutions: runtime.executionService.activeCount(),
         capabilities: runtime.status,
       }));
+      scope.get('/v1/integrations/status', () => ({
+        service: 'windows-worker' as const,
+        checkedAt: new Date().toISOString(),
+        integrations: [
+          {
+            id: 'feishu' as const,
+            configured: runtime.status.integrations.feishu,
+            resourceCount: runtime.status.integrationResourceCounts.feishu,
+          },
+          {
+            id: 'gitlab' as const,
+            configured: runtime.status.integrations.gitlab,
+            resourceCount: runtime.status.integrationResourceCounts.gitlab,
+          },
+          {
+            id: 'confluence' as const,
+            configured: runtime.status.integrations.confluence,
+            resourceCount: runtime.status.integrationResourceCounts.confluence,
+          },
+        ],
+      }));
       scope.post('/v1/executions', async (request) => {
         const execution = ExecutorExecutionRequestSchema.parse(request.body);
         return runtime.executionService.execute(execution);

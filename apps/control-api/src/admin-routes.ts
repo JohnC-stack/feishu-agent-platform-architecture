@@ -11,6 +11,7 @@ const SnapshotQuerySchema = z.object({
 
 const TaskParametersSchema = z.object({ taskId: z.string().uuid() });
 const AlertParametersSchema = z.object({ alertId: z.string().uuid() });
+const ConfigParametersSchema = z.object({ configId: z.string().uuid() });
 const AdminActionSchema = z.object({
   action: z.enum(['cancel', 'retry', 'cleanup', 'restart', 'rollback']),
   targetType: z.string().min(1).max(100),
@@ -22,6 +23,24 @@ const RoleBindingSchema = z.object({
   principalId: z.string().trim().min(3).max(500),
   roleId: z.enum(['reader', 'operator', 'approver', 'auditor', 'administrator']),
 });
+const ManagedConfigurationSchema = z.record(z.string().min(1).max(200), z.unknown());
+const ConfigValidationSchema = z.object({ configuration: ManagedConfigurationSchema }).strict();
+const ConfigDraftSchema = z
+  .object({
+    configuration: ManagedConfigurationSchema,
+    description: z.string().trim().min(1).max(1_000),
+    changeSummary: z.string().trim().min(1).max(2_000),
+    baseVersion: z.number().int().positive().optional(),
+  })
+  .strict();
+const ConfigDraftUpdateSchema = ConfigDraftSchema.omit({ baseVersion: true });
+const ConfigPublishSchema = z.object({ confirmation: z.string().trim().min(1).max(200) }).strict();
+const ConfigRollbackSchema = z
+  .object({
+    confirmation: z.string().trim().min(1).max(200),
+    changeSummary: z.string().trim().min(1).max(2_000),
+  })
+  .strict();
 const FeishuCallbackQuerySchema = z.object({
   code: z.string().min(1).max(4_096).optional(),
   state: z.string().min(1).max(512),
@@ -169,6 +188,35 @@ export function registerAdminRoutes(
       return reply.code(404).send({ error: 'ROLE_BINDING_NOT_FOUND' });
     }
     return reply.send(result);
+  });
+
+  app.post('/v1/admin/config/validate', (request) => {
+    const input = ConfigValidationSchema.parse(request.body);
+    return admin.validateConfig(readIdentity(request, admin), input.configuration);
+  });
+
+  app.post('/v1/admin/config/versions', async (request, reply) => {
+    const input = ConfigDraftSchema.parse(request.body);
+    const draft = await admin.createConfigDraft(readIdentity(request, admin), input);
+    return reply.code(201).send(draft);
+  });
+
+  app.patch('/v1/admin/config/versions/:configId', async (request) => {
+    const { configId } = ConfigParametersSchema.parse(request.params);
+    const input = ConfigDraftUpdateSchema.parse(request.body);
+    return admin.updateConfigDraft(readIdentity(request, admin), configId, input);
+  });
+
+  app.post('/v1/admin/config/versions/:configId/publish', async (request) => {
+    const { configId } = ConfigParametersSchema.parse(request.params);
+    const input = ConfigPublishSchema.parse(request.body);
+    return admin.publishConfigDraft(readIdentity(request, admin), configId, input.confirmation);
+  });
+
+  app.post('/v1/admin/config/versions/:configId/rollback', async (request) => {
+    const { configId } = ConfigParametersSchema.parse(request.params);
+    const input = ConfigRollbackSchema.parse(request.body);
+    return admin.rollbackConfigVersion(readIdentity(request, admin), configId, input);
   });
 }
 

@@ -889,9 +889,23 @@ tbody tr:hover {
 
 .integrationMeta {
   grid-column: 2;
+  display: grid;
+  gap: 3px;
   color: var(--muted);
   font-size: 11px;
   line-height: 1.6;
+}
+
+.integrationMeta > div {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.integrationMeta strong {
+  color: var(--text);
+  font-weight: 600;
+  text-align: right;
 }
 
 .integrationFooter {
@@ -2727,5 +2741,437 @@ textarea {
   .pageDescription,
   .scopeChip {
     display: none;
+  }
+}
+
+/* P7 governed configuration workspace */
+.configWorkspace {
+  display: grid;
+  grid-template-columns: minmax(0, 1.65fr) minmax(270px, 0.65fr);
+  overflow: hidden;
+  border: 1px solid #dfe6ef;
+  border-radius: 16px;
+  background: #fff;
+  box-shadow: 0 14px 42px rgba(34, 52, 80, 0.07);
+}
+
+.configEditor {
+  min-width: 0;
+  padding: 24px;
+}
+
+.configEditor .sectionHeading {
+  margin-bottom: 20px;
+}
+
+.configEditor .sectionHeading > span,
+.versionToolbar > span {
+  padding: 6px 10px;
+  border-radius: 999px;
+  color: #225ab6;
+  font-size: 11px;
+  font-weight: 800;
+  background: #edf4ff;
+}
+
+.managedFieldGrid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.managedFieldGrid > label {
+  display: grid;
+  gap: 10px;
+  padding: 15px;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  background: #f9fbfd;
+}
+
+.managedFieldGrid > label > span,
+.managedFieldGrid > label > span strong,
+.managedFieldGrid > label > span small {
+  display: block;
+}
+
+.managedFieldGrid > label > span strong {
+  color: #243147;
+  font-size: 13px;
+}
+
+.managedFieldGrid > label > span small {
+  min-height: 34px;
+  margin-top: 4px;
+  color: #748094;
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+.managedFieldGrid > label > div {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: center;
+  gap: 8px;
+}
+
+.managedFieldGrid input {
+  min-height: 43px;
+  font-size: 16px;
+  font-weight: 800;
+}
+
+.managedFieldGrid b {
+  min-width: 36px;
+  color: #64748b;
+  font-size: 11px;
+}
+
+.managedFieldGrid code,
+.confirmationBox code,
+.rollbackPanel code,
+.configDiffList code {
+  color: #536176;
+  font-size: 10px;
+  word-break: break-all;
+}
+
+.configMetaFields {
+  display: grid;
+  grid-template-columns: minmax(0, 0.8fr) minmax(0, 1.2fr);
+  gap: 12px;
+  margin-top: 14px;
+}
+
+.configMetaFields label,
+.rollbackPanel label {
+  display: grid;
+  gap: 7px;
+  color: #667085;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.configMetaFields textarea {
+  min-height: 78px;
+  resize: vertical;
+}
+
+.configValidation {
+  display: grid;
+  gap: 4px;
+  margin-top: 14px;
+  padding: 12px 14px;
+  border: 1px solid;
+  border-radius: 10px;
+  font-size: 11px;
+}
+
+.configValidation.valid {
+  color: #0e7756;
+  border-color: #bfe8d6;
+  background: #effbf5;
+}
+
+.configValidation.invalid {
+  color: #b62e3b;
+  border-color: #f3c8cd;
+  background: #fff4f5;
+}
+
+.configActions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 9px;
+  margin-top: 16px;
+}
+
+.configActions button,
+.confirmationBox button,
+.rollbackPanel button {
+  min-height: 40px;
+  padding: 9px 15px;
+  border: 1px solid #d4dce8;
+  border-radius: 8px;
+  color: #42516a;
+  cursor: pointer;
+  font-weight: 800;
+  background: #fff;
+}
+
+.configActions .primaryAction,
+.confirmationBox button {
+  color: #fff;
+  border-color: #2864dc;
+  background: #2864dc;
+}
+
+.configActions button:disabled,
+.confirmationBox button:disabled,
+.rollbackPanel button:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+.publishRail {
+  padding: 24px;
+  color: #dce8fb;
+  background: linear-gradient(155deg, #152842, #1b3961);
+}
+
+.publishRail h3 {
+  margin: 5px 0 18px;
+  color: #fff;
+}
+
+.publishRail ol {
+  display: grid;
+  gap: 11px;
+  padding: 0;
+  list-style: none;
+}
+
+.publishRail li {
+  position: relative;
+  padding-left: 23px;
+  color: #9fb0c8;
+  font-size: 12px;
+}
+
+.publishRail li::before {
+  position: absolute;
+  left: 0;
+  width: 14px;
+  height: 14px;
+  border: 1px solid #6982a3;
+  border-radius: 50%;
+  content: '';
+}
+
+.publishRail li.done {
+  color: #baf1d8;
+}
+
+.publishRail li.done::before {
+  border-color: #47ca94;
+  background: #47ca94;
+  box-shadow: inset 0 0 0 3px #1b3961;
+}
+
+.confirmationBox {
+  display: grid;
+  gap: 9px;
+  margin-top: 22px;
+  padding: 15px;
+  border: 1px solid rgba(139, 174, 222, 0.28);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.confirmationBox span,
+.publishRail > small,
+.railEmpty {
+  color: #aabbd1;
+  font-size: 11px;
+  line-height: 1.6;
+}
+
+.confirmationBox code {
+  color: #b9d4ff;
+}
+
+.versionToolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.versionToolbar label {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  color: #64748b;
+  font-size: 11px;
+}
+
+.versionToolbar select {
+  width: auto;
+  min-width: 190px;
+}
+
+.configDiffList {
+  display: grid;
+  gap: 7px;
+  margin-bottom: 13px;
+}
+
+.configDiffList article {
+  display: grid;
+  grid-template-columns: minmax(190px, 1fr) auto auto auto;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  border: 1px solid #e2e8f0;
+  border-radius: 9px;
+  background: #f8fafc;
+}
+
+.configDiffList article > div strong,
+.configDiffList article > div code,
+.tableSubline {
+  display: block;
+}
+
+.configDiffList article > span {
+  min-width: 72px;
+  padding: 5px 8px;
+  border-radius: 6px;
+  color: #344054;
+  text-align: center;
+  font-size: 11px;
+  font-weight: 800;
+  background: #eaf1ff;
+}
+
+.tableSubline {
+  margin-top: 3px;
+  color: #8792a5;
+  font-size: 10px;
+}
+
+.rollbackPanel {
+  display: grid;
+  grid-template-columns: 1fr minmax(220px, 0.7fr) minmax(260px, 0.9fr) auto;
+  align-items: end;
+  gap: 14px;
+  padding: 18px;
+  border: 1px solid #efc0c6;
+  border-radius: 13px;
+  background: #fff6f7;
+}
+
+.rollbackPanel h3,
+.rollbackPanel p {
+  margin: 3px 0;
+}
+
+.rollbackPanel p {
+  color: #7e5960;
+  font-size: 11px;
+}
+
+.rollbackPanel > div:last-child {
+  display: flex;
+  gap: 7px;
+}
+
+.rollbackPanel .dangerAction {
+  color: #fff;
+  border-color: #c23a49;
+  background: #c23a49;
+}
+
+.configList > article {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px;
+  border: 1px solid #e2e8f0;
+  border-radius: 9px;
+  background: #f8fafc;
+}
+
+.configList > article > div {
+  min-width: 0;
+  margin-right: auto;
+}
+
+.configList > article strong,
+.configList > article small {
+  display: block;
+}
+
+.configList > article strong {
+  color: #263246;
+  font-size: 11px;
+  word-break: break-all;
+}
+
+.configList > article small {
+  margin-top: 3px;
+  color: #718096;
+  font-size: 10px;
+}
+
+.configPlaybook {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 10px;
+  padding: 0;
+  list-style: none;
+}
+
+.configPlaybook li {
+  display: flex;
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  background: #f8fafc;
+}
+
+.configPlaybook li > span {
+  display: grid;
+  flex: 0 0 25px;
+  place-items: center;
+  width: 25px;
+  height: 25px;
+  border-radius: 7px;
+  color: #225ab6;
+  font-size: 11px;
+  font-weight: 900;
+  background: #eaf1ff;
+}
+
+.configPlaybook strong {
+  color: #29364b;
+  font-size: 11px;
+}
+
+.configPlaybook p {
+  margin: 4px 0 0;
+  color: #748094;
+  font-size: 10px;
+  line-height: 1.55;
+}
+
+@media (max-width: 1180px) {
+  .configWorkspace,
+  .rollbackPanel {
+    grid-template-columns: 1fr;
+  }
+
+  .configPlaybook {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 680px) {
+  .managedFieldGrid,
+  .configMetaFields,
+  .configPlaybook {
+    grid-template-columns: 1fr;
+  }
+
+  .versionToolbar,
+  .versionToolbar label {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .configDiffList article {
+    grid-template-columns: 1fr auto auto auto;
   }
 }

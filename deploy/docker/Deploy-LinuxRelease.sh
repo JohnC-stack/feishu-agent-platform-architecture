@@ -16,6 +16,10 @@ state_directory="/var/lib/feishu-agent/releases"
 mkdir -p "${state_directory}"
 export PLATFORM_VERSION="${version}"
 
+# Windows-created source archives do not preserve POSIX executable bits.
+# Normalize only repository-owned deployment scripts before invoking child scripts.
+find "${root}/deploy" -type f -name '*.sh' -exec chmod 0755 {} +
+
 compose=(docker compose --env-file "${environment_file}" -f "${compose_file}")
 "${compose[@]}" config --quiet
 "${compose[@]}" build control-api edge
@@ -42,6 +46,47 @@ if [[ -f ${active_file} ]]; then cp -f "${active_file}" "${previous_file}"; fi
 "${compose[@]}" up -d --no-deps control-api edge
 "${compose[@]}" exec -T control-api node -e "fetch('http://127.0.0.1:3000/health/ready').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"
 "${compose[@]}" --profile canary rm -sf control-api-canary
+
+# Persist the accepted image tag so the systemd-managed compose stack uses the
+# same release after a host restart. Preserve owner and mode, and replace the
+# file atomically only after all deployment health gates have passed.
+python3 - "${environment_file}" "${version}" <<'PY'
+import os
+from pathlib import Path
+import sys
+import tempfile
+
+path = Path(sys.argv[1])
+version = sys.argv[2]
+stat = path.stat()
+lines = path.read_text(encoding='utf-8').splitlines()
+updated = []
+found = False
+for line in lines:
+    if line.startswith('PLATFORM_VERSION='):
+        if found:
+            raise SystemExit('production.env contains duplicate PLATFORM_VERSION entries')
+        updated.append(f'PLATFORM_VERSION={version}')
+        found = True
+    else:
+        updated.append(line)
+if not found:
+    updated.append(f'PLATFORM_VERSION={version}')
+
+handle, temporary_name = tempfile.mkstemp(prefix='.production.env.', dir=str(path.parent))
+try:
+    with os.fdopen(handle, 'w', encoding='utf-8', newline='\n') as stream:
+        stream.write('\n'.join(updated) + '\n')
+        stream.flush()
+        os.fsync(stream.fileno())
+    os.chmod(temporary_name, stat.st_mode)
+    os.chown(temporary_name, stat.st_uid, stat.st_gid)
+    os.replace(temporary_name, path)
+finally:
+    if os.path.exists(temporary_name):
+        os.unlink(temporary_name)
+PY
+
 printf '%s\n' "${version}" > "${active_file}"
 systemctl enable feishu-agent-compose.service
 

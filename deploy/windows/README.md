@@ -21,7 +21,13 @@ P7 将 Feishu Gateway 和 Windows Worker 作为原生 Windows Service 运行。D
 - `D:\FeishuAgent\data`：配置、密钥、证书、日志、状态和任务目录；
 - `D:\FeishuAgent\backups`：迁移与升级前备份。
 
-安装脚本默认以 `LocalService` 完成最小权限启动。生产环境随后用 `Set-WindowsServiceAccount.ps1` 切换到公司批准的专用服务账号；该脚本通过安全凭据提示把口令直接交给 SCM，不写文件或日志。服务账号还必须获得工作区、Codex CLI 配置以及所需企业 CLI 的最小 ACL。
+安装脚本默认以 `LocalService` 完成最小权限启动。飞书、GitLab 和 Confluence 的生产凭据统一放在 `D:\FeishuAgent\data\secrets`，通过 `filecred://` 启动时解析；目录只允许管理员、SYSTEM 和 LocalService 访问。Confluence 使用内置只读会话客户端，不依赖个人 Python、CLI 或 DPAPI 配置。首次迁移企业凭据时运行：
+
+```powershell
+.\deploy\windows\Initialize-EnterpriseServiceCredentials.ps1
+```
+
+脚本只在本机安全窗口请求 Confluence 密码，先真实验证 GitLab 和 Confluence 身份，再写受 ACL 保护且不带换行的凭据文件；不会把密码、Token 或 Cookie写入聊天、控制台或 Git。`Set-WindowsServiceAccount.ps1` 仅保留给公司明确批准的专用域服务账号场景，不要为了复用个人凭据把 Gateway 或 Worker 改成个人账号。
 
 ## 发布流程
 
@@ -33,6 +39,10 @@ P7 将 Feishu Gateway 和 Windows Worker 作为原生 Windows Service 运行。D
 .\deploy\windows\Download-WinSW.ps1
 .\deploy\windows\New-WindowsServiceStage.ps1
 ```
+
+构建脚本默认拒绝包含未提交修改的工作区，避免发布清单错误地把旧 `HEAD` 标成实际源代码。仅用于本机验收的临时候选可显式使用 `-AllowDirty`；清单会记录 `workingTreeDirty=true` 和差异 SHA256，正式提交与推送后必须重新构建干净发布包。
+
+staging 会从项目根 `.env` 读取企业系统地址、资源白名单和凭据引用，拒绝 GitLab 明文 Token，并把飞书、GitLab、Confluence Secret 保持为 `filecred://`。生成结果中的 `WorkerIntegrations` 三项都必须为 `True`、`RequiresUserProfileServiceAccount` 必须为 `False`，且不得存在 `replace-with-` 占位符。
 
 管理员安装时只传入已受 ACL 保护的 staging 目录。脚本仅复制明确列出的证书与凭据文件，导入内部 CA 和不可导出的 Windows mTLS 客户端证书，并为三个固定内部域名写入精确 hosts 映射：
 
@@ -77,4 +87,4 @@ VM 固定使用 `192.168.100.10/24`，宿主内部地址为 `192.168.100.1`；SS
 
 ## 凭据约束
 
-环境文件应使用 `filecred://C:/ProgramData/FeishuAgent/secrets/<name>` 或 `wincred://<target>`。密钥文件不得进入 Git、发布包或 WinSW XML。内部 mTLS 私钥使用绝对路径，并由 NTFS ACL 限制为管理员、SYSTEM 和服务账号可读。
+生产环境文件应使用 `filecred://D:/FeishuAgent/data/secrets/<name>`。`wincred://<target>` 只用于交互式开发或一次性迁移，因为 LocalService 无法读取个人凭据库。Worker 会在创建企业集成客户端前解析引用；解析失败会阻止服务启动，避免把引用字符串误当成凭据继续运行。密钥文件不得进入 Git、发布包或 WinSW XML。内部 mTLS 私钥使用绝对路径，并由 NTFS ACL 限制为管理员、SYSTEM 和服务账号可读。

@@ -222,6 +222,28 @@ export const HealthResponseSchema = z.object({
 
 export type HealthResponse = z.infer<typeof HealthResponseSchema>;
 
+export const enterpriseIntegrationIds = ['feishu', 'gitlab', 'confluence'] as const;
+export const EnterpriseIntegrationIdSchema = z.enum(enterpriseIntegrationIds);
+export type EnterpriseIntegrationId = z.infer<typeof EnterpriseIntegrationIdSchema>;
+
+export const WorkerIntegrationStatusSchema = z
+  .object({
+    id: EnterpriseIntegrationIdSchema,
+    configured: z.boolean(),
+    resourceCount: z.number().int().nonnegative(),
+  })
+  .strict();
+export type WorkerIntegrationStatus = z.infer<typeof WorkerIntegrationStatusSchema>;
+
+export const WorkerIntegrationStatusResponseSchema = z
+  .object({
+    service: z.literal('windows-worker'),
+    checkedAt: z.string().datetime(),
+    integrations: z.array(WorkerIntegrationStatusSchema).length(enterpriseIntegrationIds.length),
+  })
+  .strict();
+export type WorkerIntegrationStatusResponse = z.infer<typeof WorkerIntegrationStatusResponseSchema>;
+
 export const governancePrincipalTypes = ['user', 'group', 'service'] as const;
 export const GovernancePrincipalTypeSchema = z.enum(governancePrincipalTypes);
 export type GovernancePrincipalType = z.infer<typeof GovernancePrincipalTypeSchema>;
