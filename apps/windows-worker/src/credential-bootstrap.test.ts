@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
+import { join, resolve as resolvePath } from 'node:path';
 
 import { ProtectedCredential } from '@feishu-agent/credentials';
 
@@ -33,9 +34,11 @@ describe('P5 Windows Worker credential bootstrap', () => {
   });
 
   it('resolves file credentials from explicitly allowed service secret roots', async () => {
+    const secretRoot = resolvePath('credential-fixtures', 'service-secrets');
+    const secretTarget = join(secretRoot, 'gitlab-token');
     const environment = {
-      GITLAB_TOKEN: 'filecred://D:/FeishuAgent/data/secrets/gitlab-token',
-      CREDENTIAL_FILE_ROOTS: 'D:/FeishuAgent/data/secrets',
+      GITLAB_TOKEN: `filecred://${secretTarget}`,
+      CREDENTIAL_FILE_ROOTS: secretRoot,
     };
     const resolve = vi.fn(() => Promise.resolve(new ProtectedCredential('resolved-token')));
 
@@ -46,14 +49,16 @@ describe('P5 Windows Worker credential bootstrap', () => {
     expect(resolve).toHaveBeenCalledWith({
       name: 'gitlab_token',
       provider: 'file_secret',
-      target: 'D:/FeishuAgent/data/secrets/gitlab-token',
+      target: secretTarget,
     });
   });
 
   it('resolves a Confluence service password without exposing it in bootstrap metadata', async () => {
+    const secretRoot = resolvePath('credential-fixtures', 'service-secrets');
+    const secretTarget = join(secretRoot, 'confluence-password');
     const environment = {
-      CONFLUENCE_PASSWORD: 'filecred://D:/FeishuAgent/data/secrets/confluence-password',
-      CREDENTIAL_FILE_ROOTS: 'D:/FeishuAgent/data/secrets',
+      CONFLUENCE_PASSWORD: `filecred://${secretTarget}`,
+      CREDENTIAL_FILE_ROOTS: secretRoot,
     };
     const resolve = vi.fn(() => Promise.resolve(new ProtectedCredential('resolved-password')));
 
